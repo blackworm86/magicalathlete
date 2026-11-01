@@ -1,9 +1,9 @@
 import { type GameEvent } from '../engine/race';
 import { CHARACTER_BY_ID } from '../engine/characters';
-import { charName, onLang, t, trackName, type Txt } from '../i18n';
+import { charName, onLang, t, tr, trackName, type Txt } from '../i18n';
 import { BoardScene, sleep } from '../render/boardScene';
 import { h, Prompter } from '../ui/prompts';
-import type { LogEntry, PlayerInfo } from './protocol';
+import { normalize, type LogEntry, type PlayerInfo } from './protocol';
 
 /** Presents a game: the 3D board, HUD, dice and prompts. Fed with log entries (from the host's engine or over the network). */
 export class GameView {
@@ -27,6 +27,7 @@ export class GameView {
   private offLang: () => void;
   private fixedFast = false;
   onExit: () => void = () => undefined;
+  destroyed = false;
 
   constructor(private root: HTMLElement) {
     root.innerHTML = '<div id="stage"></div>';
@@ -40,12 +41,27 @@ export class GameView {
     this.offLang = onLang(() => this.renderHud());
   }
 
-  destroy() { this.offLang(); this.board.renderer.setAnimationLoop(null); this.board.renderer.dispose(); this.root.innerHTML = ''; }
+  destroy() {
+    this.destroyed = true;
+    this.offLang();
+    this.board.renderer.setAnimationLoop(null);
+    this.board.dispose();
+    this.root.innerHTML = '';
+  }
+
+  /** A message that stays on top of the game until the player acts or leaves (connection problems, host gone). */
+  showBanner(msg: Txt, action?: { label: Txt; run: () => void }) {
+    this.root.querySelector('.banner')?.remove();
+    const b = h('div', { class: 'banner' }, tr(msg));
+    if (action) { const btn = h('button', { class: 'opt sm' }, tr(action.label)); btn.onclick = action.run; b.append(btn); }
+    this.root.append(b);
+  }
+  hideBanner() { this.root.querySelector('.banner')?.remove(); }
 
   /** While true the log is replayed at maximum speed (a player joining a running game). */
   setCatchUp(on: boolean) { if (this.fixedFast) return; this.catchUp = on; this.board.speed = on ? 100 : Number(this.speedSel.value); }
 
-  feed(e: LogEntry) { this.queue.push(e); void this.pump(); }
+  feed(e: LogEntry) { this.queue.push(normalize(e)); void this.pump(); }
 
   /** Resolves when everything fed so far has been shown. */
   async drain() { while (this.busy || this.queue.length) await sleep(this.catchUp ? 5 : 40); }

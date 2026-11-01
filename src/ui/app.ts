@@ -175,7 +175,7 @@ function onlineMenu() {
     for (let i = 0; i < 8; i++) { const c = newCode(); if (!(await backend.get(`rooms/${c}/meta`))) { code = c; break; } }
     const me = user!;
     await backend.set(`rooms/${code}/meta`, { host: me.uid, rules, status: 'lobby', created: Date.now() } satisfies RoomMeta);
-    await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: me.name, guest: me.guest, joined: Date.now() } satisfies RoomPlayer);
+    await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: me.name.slice(0, 24), guest: me.guest, joined: Date.now() } satisfies RoomPlayer);
     go(() => lobby(code));
   };
   const code = h('input', { class: 'codein', maxlength: '4', placeholder: 'ABCD', autocapitalize: 'characters' });
@@ -202,7 +202,7 @@ async function joinRoom(code: string): Promise<string | null> {
     return t('roomStarted');
   }
   if (!players[me.uid] && Object.keys(players).length >= MAX_PLAYERS) return t('roomFull');
-  await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: me.name, guest: me.guest, joined: players[me.uid]?.joined ?? Date.now() } satisfies RoomPlayer);
+  await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: me.name.slice(0, 24), guest: me.guest, joined: players[me.uid]?.joined ?? Date.now() } satisfies RoomPlayer);
   go(() => lobby(code));
   return null;
 }
@@ -214,7 +214,7 @@ function lobby(code: string) {
   let players: Record<string, RoomPlayer> = {};
   let view: GameView | null = null;
   let started = false;
-  const stopMeta = b.watch<RoomMeta>(`rooms/${code}/meta`, (m) => { meta = m; if (m?.status === 'playing' && !started && m.host !== me.uid) { startClient(m); return; } draw(); });
+  const stopMeta = b.watch<RoomMeta>(`rooms/${code}/meta`, (m) => { meta = m; if (m?.status === 'playing' && !started && m.host !== me.uid) { startClient(); return; } draw(); });
   const stopPl = b.watch<Record<string, RoomPlayer>>(`rooms/${code}/players`, (p) => { players = p ?? {}; draw(); });
   cleanup.push(stopMeta, stopPl);
 
@@ -225,13 +225,13 @@ function lobby(code: string) {
   };
   const toInfo = (ids: string[]): PlayerInfo[] => ids.map((id, i) => ({ id, name: players[id].name, bot: !!players[id].bot, color: PLAYER_COLORS[i % PLAYER_COLORS.length] }));
 
-  function startClient(m: RoomMeta) {
+  function startClient() {
     started = true;
     cleanup.forEach((f) => f()); cleanup = [];
     view = new GameView(root);
     view.onExit = () => { stop(); view?.destroy(); view = null; go(home); };
-    const stop = runClient(b, code, me.uid, view);
-    void m;
+    const leaveNow = () => { stop(); view?.destroy(); view = null; go(home); };
+    const stop = runClient(b, code, me.uid, view, leaveNow);
   }
 
   async function startHost() {
@@ -242,7 +242,7 @@ function lobby(code: string) {
     view = new GameView(root);
     const v = view;
     v.onExit = () => undefined;
-    await runHost({ rules: meta!.rules, players: toInfo(ids), local: new Set([me.uid]), net: { backend: b, code }, seed: Date.now(), ranked: meta!.rules === 'tournament' }, v);
+    await runHost({ rules: meta!.rules, players: toInfo(ids), local: new Set([me.uid]), net: { backend: b, code, host: me.uid }, seed: Date.now(), ranked: meta!.rules === 'tournament' }, v);
     v.destroy(); view = null;
     go(home);
   }
@@ -252,7 +252,7 @@ function lobby(code: string) {
     const isHost = meta.host === me.uid;
     const ids = seats();
     const ranked = meta.rules === 'tournament';
-    const link = `${location.origin}${location.pathname}#${code}${new URLSearchParams(location.search).get('backend') === 'local' ? '' : ''}`;
+    const link = `${location.origin}${location.pathname}#${code}`;
     const rows = ids.map((id, i) => {
       const p = players[id];
       const row = h('div', { class: 'prow' }, h('span', { class: 'dot', style: `background:${PLAYER_COLORS[i % PLAYER_COLORS.length]}` }, String(i + 1)),
@@ -269,11 +269,14 @@ function lobby(code: string) {
     });
     const hasBotOrGuest = ids.some((i) => players[i].bot || players[i].guest);
     const msg = ids.length < 2 ? t('needTwo') : ranked && hasBotOrGuest ? t('rankedNoBots') : '';
+    const running = meta.status !== 'lobby';
     const start = h('button', { class: 'go' }, t('startGame'));
     if (msg) start.setAttribute('disabled', '');
     start.onclick = () => void startHost();
     const leave = h('button', { class: 'opt' }, t('leaveRoom'));
     leave.onclick = async () => { if (isHost) await b.update(`rooms/${code}/meta`, { status: 'done' }); else await b.remove(`rooms/${code}/players/${me.uid}`); go(home); };
+    const close = h('button', { class: 'opt' }, t('closeRoom'));
+    close.onclick = async () => { await b.update(`rooms/${code}/meta`, { status: 'done' }); go(home); };
     const copy = h('button', { class: 'opt sm' }, t('copyLink'));
     copy.onclick = () => { void navigator.clipboard?.writeText(link); copy.textContent = t('copied'); };
     const addBot = h('button', { class: 'opt' }, '+ ' + t('addBot'));
@@ -286,9 +289,9 @@ function lobby(code: string) {
         h('p', { class: 'mut breakall' }, link),
         h('h3', { class: 't' }, `${t('seatOrder')} (${ids.length})`),
         h('div', { class: 'plist' }, ...rows),
-        isHost ? h('div', { class: 'row left' }, ...(ranked ? [] : [addBot])) : h('p', { class: 'sub' }, t('waitingHost')),
-        msg && isHost ? h('p', { class: 'err' }, msg) : h('span'),
-        h('div', { class: 'row left' }, ...(isHost ? [start] : []), leave)));
+        running ? h('p', { class: 'err' }, t('gameRunningHost')) : isHost ? h('div', { class: 'row left' }, ...(ranked ? [] : [addBot])) : h('p', { class: 'sub' }, t('waitingHost')),
+        msg && isHost && !running ? h('p', { class: 'err' }, msg) : h('span'),
+        h('div', { class: 'row left' }, ...(isHost && !running ? [start] : []), running && isHost ? close : leave)));
   }
   draw();
 }
@@ -346,7 +349,7 @@ function chart(e: ReturnType<typeof computeElo>, uid: string): Node {
 // ---------------------------------------------------------------------------------------------
 export async function startApp(el: HTMLElement) {
   root = el;
-  backend = await getBackend();
+  try { backend = await getBackend(); } catch (e) { console.warn('online play unavailable:', e); backend = null; } // the local game still works
   backend?.onUser((u) => { user = u; render(); });
   onLang(() => render());
   go(home);

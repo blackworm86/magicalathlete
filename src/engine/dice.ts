@@ -9,4 +9,3 @@ export function rng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-export const d6 = (r: () => number) => 1 + Math.floor(r() * 6);

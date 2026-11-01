@@ -19,6 +19,8 @@ export interface Backend {
   update(path: string, value: Record<string, unknown>): Promise<void>;
   push(path: string, value: unknown): Promise<string>;
   remove(path: string): Promise<void>;
+  /** Atomic read-modify-write (two games changing the same value cannot overwrite each other). */
+  transaction<T = unknown>(path: string, fn: (current: T | null) => T | null): Promise<void>;
   watch<T = unknown>(path: string, cb: (v: T | null) => void): Unsub;
   /** Calls cb for every existing and future child, in key order. */
   watchAdded<T = unknown>(path: string, cb: (key: string, v: T) => void): Unsub;
@@ -55,7 +57,6 @@ export async function createFirebaseBackend(): Promise<Backend> {
     async signUp(email, password, name) {
       const c = await A.createUserWithEmailAndPassword(auth, email, password);
       await A.updateProfile(c.user, { displayName: name });
-      await D.set(D.ref(db, `users/${c.user.uid}`), { name });
       refresh();
     },
     async signIn(email, password) { await A.signInWithEmailAndPassword(auth, email, password); },
@@ -69,8 +70,6 @@ export async function createFirebaseBackend(): Promise<Backend> {
         if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
         throw e;
       }
-      const u = cred.user;
-      await D.update(D.ref(db, `users/${u.uid}`), { name: u.displayName || u.email?.split('@')[0] || 'Player' });
       refresh();
     },
     async signInGuest(name) {
@@ -84,6 +83,7 @@ export async function createFirebaseBackend(): Promise<Backend> {
     async update(path, value) { await D.update(D.ref(db, path), value); },
     async push(path, value) { const r = D.push(D.ref(db, path)); await D.set(r, value); return r.key!; },
     async remove(path) { await D.remove(D.ref(db, path)); },
+    async transaction<T>(path: string, fn: (c: T | null) => T | null) { await D.runTransaction(D.ref(db, path), (cur) => fn(cur as T | null) as never); },
     watch<T>(path: string, cb: (v: T | null) => void) { return D.onValue(D.ref(db, path), (s) => cb(s.exists() ? (s.val() as T) : null)); },
     watchAdded<T>(path: string, cb: (key: string, v: T) => void) { return D.onChildAdded(D.ref(db, path), (s) => cb(s.key!, s.val() as T)); },
   };
@@ -163,6 +163,7 @@ export function createLocalBackend(): Backend {
       return key;
     },
     async remove(path) { write(path, null); },
+    async transaction<T>(path: string, fn: (c: T | null) => T | null) { write(path, fn(getAt(readTree(), path) as T | null)); },
     watch<T>(path: string, cb: (v: T | null) => void) {
       let last = '__init__';
       const run = () => { const v = getAt(readTree(), path); const s = path.startsWith('rooms/') && path.endsWith('/log') ? String(Object.keys((v as object) ?? {}).length) : JSON.stringify(v); if (s !== last) { last = s; cb(v as T | null); } };

@@ -130,6 +130,10 @@ export const en = {
   playAgain: 'Play again',
   speed: '{n}x speed',
   waitingFor: 'Waiting for {name}…',
+  netError: 'Connection problem: the other players may not see the game. Check your connection (and the Firebase rules).',
+  hostGone: 'The host seems to have left the game.',
+  gameRunningHost: 'This game is already running or finished: it cannot be started again from the lobby.',
+  closeRoom: 'Close the room',
   savingRanked: 'Saving the result…',
   rankedSaved: 'Result saved: your S.K.U.L.O. is updated.',
   // results page

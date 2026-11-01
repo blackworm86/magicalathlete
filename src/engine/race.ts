@@ -66,6 +66,7 @@ export class Race {
   skipMain = false; // set by powers during turn start / roll (Hare, Inchworm, Flip Flop, Sisyphus)
   forcedNext: Racer | null = null; // Skipper / Genius: who takes the next turn
   group: Racer[] = []; // racers that arrived on their space simultaneously with the current stop
+  private snap: { racer: Racer; pos: number; others: Racer[] } | null = null; // the space as it was when the racer stopped
   predictions = new Map<number, number>(); // Genius: racer id -> predicted roll
   mastermind = new Map<number, number>(); // Mastermind: racer id -> predicted winner racer id
   private copyPick = new Map<number, number>();
@@ -96,7 +97,12 @@ export class Race {
   get active() { return this.racers.filter(this.isActive); }
   at(pos: number, except?: Racer) { return this.active.filter((r) => r.pos === pos && r !== except); }
   /** Racers sharing `r`'s space, not counting those that arrived together with it. */
-  sharing(r: Racer) { return this.at(r.pos, r).filter((o) => !this.group.includes(o)); }
+  sharing(r: Racer) {
+    const others = this.snap?.racer === r ? this.snap.others.filter((o) => this.isActive(o) && o.pos === this.snap!.pos) : this.at(r.pos, r);
+    return others.filter((o) => !this.group.includes(o));
+  }
+  /** Where `r` stopped (it may have moved on since: an arrow resolves before the powers that react to the stop). */
+  stopPos(r: Racer) { return this.snap?.racer === r ? this.snap.pos : r.pos; }
   leaders() { const m = Math.max(...this.active.map((r) => r.pos)); return this.active.filter((r) => r.pos === m); }
   lasts() { const m = Math.min(...this.active.map((r) => r.pos)); return this.active.filter((r) => r.pos === m); }
   rollDie() { return this.dice(); }
@@ -326,16 +332,22 @@ export class Race {
     const sp = this.track.spaces[at];
     if (sp.type === 'star') this.giveChips(r.owner, sp.amount);
     if (sp.type === 'trip') this.trip(r);
-    await this.dispatch((h, s) => h.onStopped?.(this, s, r));
+    const snap = { racer: r, pos: at, others: this.at(at, r) };
+    const group = this.group;
+    // Space effects come first (rulebook trigger order): the arrow moves the racer, then the powers react to the stop.
     if (sp.type === 'arrow' && !this.over && this.isActive(r) && r.pos === at) {
       // Rule 5: the same racer taking the same arrow again inside one chain is a loop: do it once, then stop.
       const key = `${r.id}@${at}`;
-      if (this.arrowChain.has(key)) return;
-      this.arrowChain.add(key);
-      this.arrowDepth++;
-      try { await this.move(r, sp.amount, 'arrow'); } // separate move, never part of the main move
-      finally { if (--this.arrowDepth === 0) this.arrowChain.clear(); }
+      if (!this.arrowChain.has(key)) {
+        this.arrowChain.add(key);
+        this.arrowDepth++;
+        try { await this.move(r, sp.amount, 'arrow'); } // separate move, never part of the main move
+        finally { if (--this.arrowDepth === 0) this.arrowChain.clear(); }
+      }
     }
+    const prev = this.snap;
+    this.snap = snap; this.group = group;
+    try { await this.dispatch((h, s) => h.onStopped?.(this, s, r)); } finally { this.snap = prev; }
   }
 
   // ---- turns ---------------------------------------------------------------------------
@@ -373,12 +385,21 @@ export class Race {
     await this.move(r, Math.max(0, base + bonus), 'main');
   }
 
+  /** Copy Cat: with a tied lead its player picks whom to copy (and cannot switch in the middle of an action). */
+  private async pickCopy(cc: Racer) {
+    const lead = this.leaders();
+    if (lead.includes(cc) || lead.length < 2) return;
+    const pick = await this.choose(cc, 'copy_cat', lead);
+    if (pick) this.copyPick.set(cc.id, pick.id);
+  }
+
   async takeTurn(r: Racer) {
     this.current = r;
     this.events.push({ t: 'turn', racer: r.id });
     this.turnStartPos = r.pos;
     this.skipMain = false;
     this.predictions.delete(r.id);
+    if (r.character === 'copy_cat') await this.pickCopy(r);
     const wasTripped = r.tripped; // a trip picked up during this turn only affects the next main move
     await this.dispatch((h, s) => h.onTurnStart?.(this, s), r);
     if (!this.over && this.isActive(r)) {

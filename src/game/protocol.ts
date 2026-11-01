@@ -19,6 +19,17 @@ export type LogEntry =
   | { t: 'end'; totals: Record<string, number>; ranking: { id: string; pos: number; p: number }[]; winners: string[]; ranked: boolean }
   | { t: 'info'; spec: PromptSpec };
 
-export interface RoomMeta { host: string; rules: Rules; status: 'lobby' | 'playing' | 'done'; created: number; order?: string[] }
+export interface RoomMeta { host: string; rules: Rules; status: 'lobby' | 'playing' | 'done'; created: number; order?: string[]; alive?: number }
+
+/** Firebase does not store empty lists or objects, so they come back missing: put them back before the view uses them. */
+export function normalize(e: LogEntry): LogEntry {
+  switch (e.t) {
+    case 'start': return { ...e, players: e.players ?? [] };
+    case 'race': return { ...e, racers: e.racers ?? [] };
+    case 'raceEnd': return { ...e, totals: e.totals ?? {}, summary: { ...e.summary, places: e.summary?.places ?? [], points: e.summary?.points ?? {} } };
+    case 'end': return { ...e, totals: e.totals ?? {}, ranking: e.ranking ?? [], winners: e.winners ?? [] };
+    default: return e;
+  }
+}
 export interface RoomPlayer { uid: string; name: string; guest: boolean; bot?: boolean; joined: number }
 export interface Request { to: string; spec: PromptSpec }

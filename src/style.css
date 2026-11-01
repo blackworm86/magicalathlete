@@ -100,3 +100,4 @@ label{display:block;font-weight:800;margin:8px 0 6px}
 .chartwrap{overflow-x:auto}.elochart{width:100%;max-width:700px;height:auto}.elochart .ax{font:700 11px Nunito,sans-serif;fill:var(--muted)}
 .google{width:100%}.google .g{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:99px;border:3px solid var(--ink);background:#fff;font-family:"Lilita One",sans-serif;font-size:15px;color:#4285f4}
 .center-t{text-align:center;margin:6px 0}
+.banner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:20;background:var(--red);color:#fff;border:3px solid var(--ink);border-radius:14px;box-shadow:4px 4px 0 var(--ink);padding:8px 14px;font-weight:800;max-width:min(560px,94vw);display:flex;gap:10px;align-items:center;flex-wrap:wrap}

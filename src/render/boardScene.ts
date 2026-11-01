@@ -65,6 +65,7 @@ export class BoardScene {
   private board = new THREE.Group();
   private tweens = new Set<(dt: number) => boolean>();
   private last = performance.now();
+  private observer: ResizeObserver;
 
   constructor(host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -85,12 +86,14 @@ export class BoardScene {
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.46;
     this.controls.minDistance = 5; this.controls.maxDistance = 22;
-    new ResizeObserver(() => this.resize()).observe(host);
+    this.observer = new ResizeObserver(() => this.resize());
+    this.observer.observe(host);
     this.resize(host);
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
-  private resize(host = this.renderer.domElement.parentElement!) {
+  private resize(host: HTMLElement | null = this.renderer.domElement.parentElement) {
+    if (!host) return;
     const w = host.clientWidth || innerWidth, h = host.clientHeight || innerHeight;
     this.renderer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     // keep the whole board (about 16.4 units wide) in view
@@ -117,9 +120,33 @@ export class BoardScene {
   }
 
   // ---- board -----------------------------------------------------------------------------
+  /** Frees GPU memory of everything below `obj` (cached racer photos are shared, so they stay). */
+  private free(obj: THREE.Object3D) {
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.geometry.dispose();
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        const map = (mat as THREE.MeshStandardMaterial).map;
+        if (map && (map as THREE.CanvasTexture).isCanvasTexture) map.dispose();
+        mat.dispose();
+      }
+    });
+  }
+
+  dispose() {
+    this.observer.disconnect();
+    this.free(this.board);
+    for (const r of this.racers.values()) this.free(r.group);
+    this.renderer.dispose();
+    this.renderer.forceContextLoss(); // browsers allow only ~16 live WebGL contexts
+    this.renderer.domElement.remove();
+  }
+
   setTrack(track: Track) {
+    this.free(this.board);
     this.board.clear();
-    for (const r of this.racers.values()) this.scene.remove(r.group);
+    for (const r of this.racers.values()) { this.free(r.group); this.scene.remove(r.group); }
     this.racers.clear();
     const slab = new THREE.Mesh(new THREE.BoxGeometry(15.8, 0.3, 4.8), new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.8 }));
     slab.position.set(0, -0.2, 0); slab.receiveShadow = true;

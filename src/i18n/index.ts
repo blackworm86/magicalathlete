@@ -21,7 +21,7 @@ export const getLang = () => lang;
 export function setLang(l: Lang) {
   lang = l;
   try { localStorage.setItem('ma_lang', l); } catch { /* ignore */ }
-  document.documentElement.lang = l;
+  if (typeof document !== 'undefined') document.documentElement.lang = l;
   listeners.forEach((f) => f());
 }
 export const onLang = (f: () => void) => { listeners.add(f); return () => listeners.delete(f); };
@@ -36,4 +36,4 @@ export function t(key: Key, p?: Params): string {
 }
 export const tr = (x: Txt | undefined): string => (x === undefined ? '' : typeof x === 'string' ? x : t(x.k, x.p));
 export const trackName = (id: 'mild' | 'wild') => t(id);
-document.documentElement.lang = lang;
+if (typeof document !== 'undefined') document.documentElement.lang = lang;

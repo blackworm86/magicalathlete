@@ -82,7 +82,7 @@ export const POWERS: Partial<Record<string, PowerHooks>> = {
       if (mover === self) {
         const others = race.sharing(self);
         if (others.length) return race.usePower(self, () => others.forEach((o) => race.trip(o)));
-      } else if (mover.pos === self.pos && !race.group.includes(self)) return race.usePower(self, () => race.trip(mover));
+      } else if (race.stopPos(mover) === self.pos && !race.group.includes(self)) return race.usePower(self, () => race.trip(mover));
     },
   },
   mouth: {
@@ -178,7 +178,7 @@ export const POWERS: Partial<Record<string, PowerHooks>> = {
     async onStopped(race, self, mover) {
       let foes: Racer[];
       if (mover === self) foes = race.sharing(self);
-      else if (mover.pos === self.pos && !race.group.includes(self) && !race.has(mover, 'mouth')) foes = [mover]; // M.O.U.T.H. eats first
+      else if (race.stopPos(mover) === self.pos && !race.group.includes(self) && !race.has(mover, 'mouth')) foes = [mover]; // M.O.U.T.H. eats first
       else return;
       if (!foes.length || !(await ask(race, self))) return;
       const foe = foes.length === 1 ? foes[0] : await race.choose(self, 'duelist', foes);

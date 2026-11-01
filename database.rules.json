@@ -2,28 +2,39 @@
   "rules": {
     "rooms": {
       "$code": {
-        ".read": "auth != null",
         "meta": {
-          ".write": "auth != null && (!data.exists() || data.child('host').val() === auth.uid)"
+          ".read": "auth != null",
+          ".write": "auth != null && (!data.exists() || data.child('host').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['host', 'rules', 'status']) && (newData.child('rules').val() === 'friendly' || newData.child('rules').val() === 'tournament')"
         },
         "players": {
+          ".read": "auth != null",
           "$uid": {
-            ".write": "auth != null && (auth.uid === $uid || root.child('rooms').child($code).child('meta').child('host').val() === auth.uid)"
+            ".write": "auth != null && (auth.uid === $uid || root.child('rooms').child($code).child('meta').child('host').val() === auth.uid)",
+            ".validate": "newData.hasChildren(['name', 'guest']) && newData.child('name').isString() && newData.child('name').val().length <= 24 && (newData.child('guest').val() === true || auth.token.firebase.sign_in_provider != 'anonymous' || root.child('rooms').child($code).child('meta').child('host').val() === auth.uid)"
           }
         },
         "log": {
+          ".read": "auth != null",
           "$n": {
             ".write": "auth != null && !data.exists() && root.child('rooms').child($code).child('meta').child('host').val() === auth.uid"
           }
         },
         "req": {
-          "$id": {
-            ".write": "auth != null && !data.exists() && root.child('rooms').child($code).child('meta').child('host').val() === auth.uid"
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            "$id": {
+              ".write": "auth != null && (!data.exists() || newData.val() === null) && root.child('rooms').child($code).child('meta').child('host').val() === auth.uid"
+            }
           }
         },
         "ans": {
-          "$id": {
-            ".write": "auth != null && !data.exists()"
+          ".read": "auth != null && root.child('rooms').child($code).child('meta').child('host').val() === auth.uid",
+          "$uid": {
+            "$id": {
+              ".read": "auth != null && auth.uid === $uid",
+              ".write": "auth != null && auth.uid === $uid && !data.exists()"
+            }
           }
         }
       }
@@ -32,20 +43,15 @@
       ".read": "auth != null",
       "$id": {
         ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && !data.exists()",
-        ".validate": "newData.hasChildren(['date', 'players'])"
-      }
-    },
-    "users": {
-      "$uid": {
-        ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid"
+        ".validate": "newData.hasChildren(['date', 'players', 'code', 'host']) && newData.child('host').val() === auth.uid && root.child('rooms').child(newData.child('code').val()).child('meta').child('host').val() === auth.uid && root.child('rooms').child(newData.child('code').val()).child('meta').child('rules').val() === 'tournament'"
       }
     },
     "global": {
       "tiers": {
         ".read": "auth != null",
         "$id": {
-          ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous'"
+          ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous'",
+          ".validate": "newData.isString() && newData.val().matches(/^[SABCDE]$/)"
         }
       }
     }

@@ -9,21 +9,28 @@ import { randomAnswer, type PromptAnswer, type PromptSpec } from '../ui/prompts'
 import { PLAYER_COLORS, type LogEntry, type PlayerInfo, type Rules } from './protocol';
 import type { GameView } from './view';
 
+/** The part of the screen the host needs (small, so it can be replaced in tests). */
+export type HostView = Pick<GameView, 'feed' | 'drain' | 'prompter' | 'showBanner' | 'destroyed'>;
+
 export { PLAYER_COLORS };
 export interface HostConfig {
   rules: Rules;
   players: PlayerInfo[]; // seat order
   local: Set<string>; // players answered on this device
-  net?: { backend: Backend; code: string }; // other humans, and results, go through this
+  net?: { backend: Backend; code: string; host: string }; // other humans, and results, go through this
   seed: number;
   ranked: boolean;
+  timeouts?: { answer: number; away: number }; // for tests
 }
 
 const clean = <T>(x: T): T => JSON.parse(JSON.stringify(x));
-const ANSWER_TIMEOUT_MS = 180_000;
+const ANSWER_TIMEOUT_MS = 180_000; // how long a player may think
+const AWAY_TIMEOUT_MS = 8_000; // a player who already timed out once only gets this long per question
+const HEARTBEAT_MS = 10_000;
 
 /** Runs the whole game (engine + decisions) on this device and streams what happens. */
-export async function runHost(cfg: HostConfig, view: GameView): Promise<void> {
+export async function runHost(cfg: HostConfig, view: HostView): Promise<void> {
+  const answerMs = cfg.timeouts?.answer ?? ANSWER_TIMEOUT_MS, awayMs = cfg.timeouts?.away ?? AWAY_TIMEOUT_MS;
   const r = rng(cfg.seed);
   const by = Object.fromEntries(cfg.players.map((p) => [p.id, p]));
   const ids = cfg.players.map((p) => p.id);
@@ -31,17 +38,22 @@ export async function runHost(cfg: HostConfig, view: GameView): Promise<void> {
   let race: Race | null = null;
   let cursor = 0;
 
+  let warned = false;
+  const netError = () => { if (!warned) { warned = true; view.showBanner({ k: 'netError' }); } };
+  /** Online writes must never fail silently: the other players would just see a frozen screen. */
+  const send = (p: Promise<unknown>) => { p.catch(netError); };
+  const away = new Set<string>(); // players who did not answer in time: the bot answers fast for them until they are back
   const emit = (e: LogEntry) => {
     const c = clean(e);
     view.feed(c);
-    if (net) void net.backend.push(`rooms/${net.code}/log`, c);
+    if (net) send(net.backend.push(`rooms/${net.code}/log`, c));
   };
   const flush = () => { while (race && cursor < race.events.length) emit({ t: 'ev', e: race.events[cursor++] }); };
 
-  function waitAnswer(reqId: string): Promise<PromptAnswer | null> {
+  function waitAnswer(pid: string, reqId: string, ms: number): Promise<PromptAnswer | null> {
     return new Promise((res) => {
-      const stop = net!.backend.watch<{ v: PromptAnswer }>(`rooms/${net!.code}/ans/${reqId}`, (a) => { if (a) { clearTimeout(timer); stop(); res(a.v); } });
-      const timer = setTimeout(() => { stop(); res(null); }, ANSWER_TIMEOUT_MS);
+      const stop = net!.backend.watch<{ v: PromptAnswer }>(`rooms/${net!.code}/ans/${pid}/${reqId}`, (a) => { if (a) { clearTimeout(timer); stop(); res(a.v); } });
+      const timer = setTimeout(() => { stop(); res(null); }, ms);
     });
   }
 
@@ -51,8 +63,12 @@ export async function runHost(cfg: HostConfig, view: GameView): Promise<void> {
     if (!p || p.bot) return randomAnswer(spec, r);
     if (cfg.local.has(pid)) { await view.drain(); return view.prompter.run(spec); }
     if (!net) return randomAnswer(spec, r);
-    const id = await net.backend.push(`rooms/${net.code}/req`, clean({ to: pid, spec }));
-    return (await waitAnswer(id)) ?? randomAnswer(spec, r); // a player who does not answer is played by the bot
+    let id: string;
+    try { id = await net.backend.push(`rooms/${net.code}/req/${pid}`, clean({ to: pid, spec })); } catch { netError(); return randomAnswer(spec, r); }
+    const a = await waitAnswer(pid, id, away.has(pid) ? awayMs : answerMs);
+    if (a === null) { away.add(pid); send(net.backend.remove(`rooms/${net.code}/req/${pid}/${id}`)); return randomAnswer(spec, r); } // a player who does not answer is played by the bot
+    away.delete(pid);
+    return a;
   }
   const idx = async (pid: string, spec: PromptSpec): Promise<number> => { const a = await ask(pid, spec); return Array.isArray(a) ? a[0] ?? 0 : typeof a === 'number' ? a : 0; };
   const pickN = async (pid: string, spec: PromptSpec): Promise<number[]> => { const a = await ask(pid, spec); return Array.isArray(a) ? a : [0]; };
@@ -86,6 +102,9 @@ export async function runHost(cfg: HostConfig, view: GameView): Promise<void> {
   const eggAsk = (pid: string, options: CharacterId[]) => (isBot(pid) ? rand(options.length) : idx(pid, { k: 'cards', title: { k: 'eggTitle', p: { name: by[pid].name } }, sub: { k: 'eggSub' }, color: by[pid].color, cards: options }));
   const twinAsk = (pid: string, options: CharacterId[]) => (isBot(pid) ? rand(options.length) : idx(pid, { k: 'choose', title: { k: 'twinTitle', p: { name: by[pid].name } }, color: by[pid].color, options: options.map((c) => ({ label: c as string, id: c })), none: { k: 'noThanks' } }));
 
+  // The host's browser runs the game: tell the others it is still there.
+  const beat: ReturnType<typeof setInterval> = setInterval(() => { if (view.destroyed) { clearInterval(beat); return; } if (net) send(net.backend.update(`rooms/${net.code}/meta`, { alive: Date.now() })); }, HEARTBEAT_MS);
+  if (net) send(net.backend.update(`rooms/${net.code}/meta`, { alive: Date.now() }));
   emit({ t: 'start', rules: cfg.rules, players: cfg.players });
   let totals: Record<string, number> = {};
   let ranking: { id: string; pos: number; p: number }[] = [];
@@ -106,7 +125,7 @@ export async function runHost(cfg: HostConfig, view: GameView): Promise<void> {
     });
     totals = res.totals; winners = res.winners;
   } else {
-    let tiers: Record<string, Tier> = { ...START_TIERS };
+    let tiers: Record<string, Tier> = { ...START_TIERS }; // only used for the picking order; the shared values are changed with transactions
     if (net) { const g = await net.backend.get<Record<string, Tier>>('global/tiers'); if (g) tiers = { ...tiers, ...g }; }
     const agent: TournamentAgent = {
       draft: (pid, options, round) => (isBot(pid) ? rand(options.length) : idx(pid, { k: 'cards', title: { k: 'tDraftTitle', p: { name: by[pid].name, n: round + 1 } }, sub: { k: 'tDraftSub' }, color: by[pid].color, cards: options })),
@@ -124,8 +143,9 @@ export async function runHost(cfg: HostConfig, view: GameView): Promise<void> {
         flush();
         emit({ t: 'raceEnd', summary, totals: t, up: change.up, down: change.down });
         if (net && cfg.ranked) {
-          if (change.up) { tiers[change.up] = shiftTier(tiers[change.up] ?? 'D', 1); void net.backend.set(`global/tiers/${change.up}`, tiers[change.up]); }
-          if (change.down) { tiers[change.down] = shiftTier(tiers[change.down] ?? 'D', -1); void net.backend.set(`global/tiers/${change.down}`, tiers[change.down]); }
+          for (const [id, d] of [[change.up, 1], [change.down, -1]] as const) {
+            if (id) send(net.backend.transaction<Tier>(`global/tiers/${id}`, (cur) => shiftTier(cur ?? START_TIERS[id] ?? 'D', d)));
+          }
         }
         await view.drain();
       },
@@ -146,11 +166,12 @@ export async function runHost(cfg: HostConfig, view: GameView): Promise<void> {
   if (net && cfg.ranked && hist) {
     try {
       const id = `${net.code}_${Date.now().toString(36)}`;
-      await net.backend.set(`history/${id}`, clean({ id, date: Date.now(), rules: 'tournament', players: hist.map((x) => ({ uid: x.id, name: x.name, p: x.p, pos: x.pos, rw: x.rw, bz: x.bz })) }));
+      await net.backend.set(`history/${id}`, clean({ id, date: Date.now(), rules: 'tournament', code: net.code, host: net.host, players: hist.map((x) => ({ uid: x.id, name: x.name, p: x.p, pos: x.pos, rw: x.rw, bz: x.bz })) }));
       saved = true;
     } catch { saved = false; }
   }
-  if (net) void net.backend.update(`rooms/${net.code}/meta`, { status: 'done' });
+  clearInterval(beat);
+  if (net) { send(net.backend.update(`rooms/${net.code}/meta`, { status: 'done' })); send(net.backend.remove(`rooms/${net.code}/req`)); }
   emit({ t: 'end', totals, ranking, winners, ranked: saved });
   await view.drain();
 }
