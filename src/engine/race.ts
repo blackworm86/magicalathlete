@@ -211,7 +211,7 @@ export class Race {
       for (const s of src) {
         while (s.left > 0 && (await this.ask({ kind: 'reroll', racer: r, roll: rolled, source: s.self }))) {
           s.left--;
-          await this.dispatch((h, self) => h.onReroll?.(this, self, r));
+          await this.dispatch((h, self) => h.onReroll?.(this, self, r, s.self));
           rolled = this.dice();
         }
       }

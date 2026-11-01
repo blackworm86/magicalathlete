@@ -10,7 +10,7 @@ export interface PowerHooks {
   rollReplace?(race: Race, self: Racer, roll: number): Promise<number | undefined>;
   /** How many rerolls this power gives `mover` this turn (Magician, Dicemonger). */
   rerolls?(race: Race, self: Racer, mover: Racer): number;
-  onReroll?(race: Race, self: Racer, mover: Racer): Promise<void> | void;
+  onReroll?(race: Race, self: Racer, mover: Racer, source: Racer): Promise<void> | void;
   onTurnStart?(race: Race, self: Racer): Promise<void> | void; // own turn only
   onRolled?(race: Race, self: Racer, mover: Racer, roll: number): Promise<void> | void;
   onPassing?(race: Race, self: Racer, mover: Racer, passed: Racer[]): Promise<void> | void;
@@ -122,12 +122,12 @@ export const POWERS: Partial<Record<string, PowerHooks>> = {
   },
   magician: {
     rerolls: (_r, self, mover) => (mover === self ? 2 : 0),
-    onReroll: (race, self, mover) => { if (mover === self) return race.usePower(self, () => undefined); },
+    onReroll: (race, self, _mover, source) => { if (source === self) return race.usePower(self, () => undefined); },
   },
   dicemonger: {
     rerolls: () => 1,
-    onReroll: (race, self, mover) => {
-      if (mover !== self) return race.usePower(self, () => race.move(self, 1, 'power'));
+    onReroll: (race, self, mover, source) => {
+      if (source === self && mover !== self) return race.usePower(self, () => race.move(self, 1, 'power'));
     },
   },
   leaptoad: {}, // behaviour lives in Race.move (skips occupied spaces)

@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import type { CharacterId } from './characters';
 import { scoreRace } from './match';
-import { Race } from './race';
+import { Race, type Agent } from './race';
 import { MILD_MILE, WILD_WILDS, type Track } from './tracks';
 
 // Deterministic dice: returns the given rolls in order, then 1s.
 const seq = (...rolls: number[]) => { let i = 0; return () => rolls[i++] ?? 1; };
-const mk = (entries: [string, CharacterId, number?][], dice: () => number, track: Track = MILD_MILE, agent?: () => boolean) =>
+const mk = (entries: [string, CharacterId, number?][], dice: () => number, track: Track = MILD_MILE, agent?: Agent) =>
   new Race({ track, dice, agent, entries: entries.map(([owner, character, pos]) => ({ owner, character, pos })) });
 
 describe('core rules', () => {
@@ -117,5 +117,17 @@ describe('powers', () => {
     const race = mk([['A', 'twin', 0], ['B', 'twin', 0], ['S', 'skipper', 0]], seq(1, 4, 4));
     await race.takeTurn(race.racers[0]);
     expect(race.forcedNext?.owner).toBe('S');
+  });
+
+  test('Dicemonger moves 1 when another racer uses its reroll, not for Magician rerolls; Scoocher follows once', async () => {
+    // X rerolls a 2 into a 6 via Dicemonger; Scoocher also moves 1
+    const a = mk([['X', 'twin', 0], ['D', 'dicemonger', 0], ['S', 'scoocher', 0]], seq(2, 6), MILD_MILE, () => true);
+    await a.takeTurn(a.racers[0]);
+    expect(a.racers[1].pos).toBe(1);
+    expect(a.racers[2].pos).toBe(1);
+    // Magician's own rerolls (it is the source) don't move Dicemonger
+    const b = mk([['M', 'magician', 0], ['D', 'dicemonger', 5]], seq(2, 3, 4), MILD_MILE, (d) => d.kind !== 'reroll' || d.source.character === 'magician');
+    await b.takeTurn(b.racers[0]);
+    expect(b.racers[1].pos).toBe(5);
   });
 });
