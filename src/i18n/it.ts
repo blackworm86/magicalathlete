@@ -35,6 +35,8 @@ export const it: Record<keyof typeof en, string> = {
   password: 'Password (almeno 6 caratteri)',
   displayName: 'Il tuo nome',
   playAsGuest: 'Gioca da ospite',
+  withGoogle: 'Continua con Google',
+  or: 'oppure',
   guestName: 'Nome ospite',
   loggedAs: 'Connesso come {name}',
   guestAs: 'Ospite: {name}',

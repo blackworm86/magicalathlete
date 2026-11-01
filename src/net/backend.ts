@@ -11,6 +11,7 @@ export interface Backend {
   onUser(cb: (u: AuthUser | null) => void): Unsub;
   signUp(email: string, password: string, name: string): Promise<void>;
   signIn(email: string, password: string): Promise<void>;
+  signInGoogle(): Promise<void>;
   signInGuest(name: string): Promise<void>;
   signOut(): Promise<void>;
   get<T = unknown>(path: string): Promise<T | null>;
@@ -58,6 +59,20 @@ export async function createFirebaseBackend(): Promise<Backend> {
       refresh();
     },
     async signIn(email, password) { await A.signInWithEmailAndPassword(auth, email, password); },
+    async signInGoogle() {
+      const provider = new A.GoogleAuthProvider();
+      let cred: import('firebase/auth').UserCredential | null = null;
+      try { cred = await A.signInWithPopup(auth, provider); }
+      catch (e) {
+        const code = (e as { code?: string }).code ?? '';
+        if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') { await A.signInWithRedirect(auth, provider); return; } // phones / strict browsers
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
+        throw e;
+      }
+      const u = cred.user;
+      await D.update(D.ref(db, `users/${u.uid}`), { name: u.displayName || u.email?.split('@')[0] || 'Player' });
+      refresh();
+    },
     async signInGuest(name) {
       const c = await A.signInAnonymously(auth);
       await A.updateProfile(c.user, { displayName: name });
@@ -136,6 +151,7 @@ export function createLocalBackend(): Backend {
       if (!a || a.pw !== password) throw new Error('wrong email or password');
       setUser({ uid: a.uid, name: a.name, guest: false, email });
     },
+    async signInGoogle() { const n = prompt('Google account name (test backend)', 'Google user'); if (n) setUser({ uid: 'goog_' + n.toLowerCase().replace(/\W/g, ''), name: n, guest: false, email: n + '@gmail.test' }); },
     async signInGuest(name) { setUser({ uid: 'g_' + Math.random().toString(36).slice(2, 10), name, guest: true }); },
     async signOut() { setUser(null); },
     async get<T>(path: string) { return getAt(readTree(), path) as T | null; },

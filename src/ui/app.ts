@@ -52,6 +52,14 @@ function page(...kids: Node[]) {
 }
 
 function loginModal(onDone?: () => void, ranked = false) {
+  const googleBtn = () => {
+    const b = h('button', { class: 'opt google' }, t('withGoogle'));
+    b.prepend(h('span', { class: 'g' }, 'G'));
+    b.onclick = async () => {
+      try { await backend?.signInGoogle(); if (user) { wrap.remove(); onDone?.(); } } catch (e) { const el = wrap.querySelector('.err'); if (el) el.textContent = t('authError', { msg: (e as Error).message.replace('Firebase: ', '') }); }
+    };
+    return b;
+  };
   let mode: 'login' | 'register' | 'guest' = ranked ? 'login' : 'login';
   const wrap = h('div', { class: 'modal' });
   const draw = () => {
@@ -76,6 +84,7 @@ function loginModal(onDone?: () => void, ranked = false) {
     const switchTo = (m: typeof mode, label: Key) => { const b = h('button', { class: 'link' }, t(label)); b.onclick = () => { mode = m; draw(); }; return b; };
     const sheet = h('div', { class: 'sheet small' }, h('h2', {}, t('account')),
       ranked ? h('p', { class: 'sub' }, t('needLoginRanked')) : h('span'),
+      ...(mode !== 'guest' ? [googleBtn(), h('p', { class: 'mut center-t' }, t('or'))] : []),
       h('div', { class: 'stack' }, ...fields), err, go1,
       h('div', { class: 'stack center' },
         mode === 'login' ? switchTo('register', 'noAccount') : switchTo('login', 'haveAccount'),

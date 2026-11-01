@@ -1,6 +1,6 @@
 # Firebase setup (online play, accounts, ranking)
 
-1. **Authentication -> Sign-in method:** enable **Email/Password** (accounts for ranked games) and **Anonymous** (guests in friendly games).
+1. **Authentication -> Sign-in method:** enable **Google** and **Email/Password** (accounts for ranked games) and **Anonymous** (guests in friendly games).
 2. **Authentication -> Settings -> Authorized domains:** add `blackworm86.github.io`.
 3. **Realtime Database -> Rules:** paste the contents of `database.rules.json` and publish. (It changed: rooms, history, users and global tiers.)
 4. GitHub repo **Settings -> Secrets and variables -> Actions -> Variables:** `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`. Re-run the deploy.

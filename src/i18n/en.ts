@@ -35,6 +35,8 @@ export const en = {
   password: 'Password (6+ characters)',
   displayName: 'Your name',
   playAsGuest: 'Play as guest',
+  withGoogle: 'Continue with Google',
+  or: 'or',
   guestName: 'Guest name',
   loggedAs: 'Logged in as {name}',
   guestAs: 'Guest: {name}',
