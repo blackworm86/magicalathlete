@@ -108,6 +108,7 @@ export class BoardScene {
 
   /** Run `fn(t)` for t in 0..1 over `seconds` (scaled by speed). */
   tween(seconds: number, fn: (t: number) => void): Promise<void> {
+    if (this.speed >= 50) { fn(1); return Promise.resolve(); } // fast-forward (catching up): skip the animation
     return new Promise((done) => {
       let el = 0;
       this.tweens.add((dt) => { el += dt; const t = Math.min(1, el / seconds); fn(t); if (t >= 1) { done(); return false; } return true; });

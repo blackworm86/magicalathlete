@@ -1,16 +1,51 @@
 {
   "rules": {
     "rooms": {
-      "$room": {
+      "$code": {
         ".read": "auth != null",
         "meta": {
           ".write": "auth != null && (!data.exists() || data.child('host').val() === auth.uid)"
         },
         "players": {
-          "$uid": { ".write": "auth != null && auth.uid === $uid" }
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('rooms').child($code).child('meta').child('host').val() === auth.uid)"
+          }
         },
-        "actions": {
-          "$n": { ".write": "auth != null && !data.exists()" }
+        "log": {
+          "$n": {
+            ".write": "auth != null && !data.exists() && root.child('rooms').child($code).child('meta').child('host').val() === auth.uid"
+          }
+        },
+        "req": {
+          "$id": {
+            ".write": "auth != null && !data.exists() && root.child('rooms').child($code).child('meta').child('host').val() === auth.uid"
+          }
+        },
+        "ans": {
+          "$id": {
+            ".write": "auth != null && !data.exists()"
+          }
+        }
+      }
+    },
+    "history": {
+      ".read": "auth != null",
+      "$id": {
+        ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && !data.exists()",
+        ".validate": "newData.hasChildren(['date', 'players'])"
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "global": {
+      "tiers": {
+        ".read": "auth != null",
+        "$id": {
+          ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous'"
         }
       }
     }

@@ -31,3 +31,9 @@ npm run dev        # http://localhost:5173
 ```
 
 Local hot-seat game for 2-6 players (humans and bots) with the 3D board, animated races and prompts for every power decision. Online play through Firebase is the next step.
+
+## Languages, rules, accounts
+- English and Italian (switch at the top of every menu screen).
+- **Friendly (amichevole):** rulebook rules, guests and bots allowed, not ranked.
+- **Tournament:** the tournament site's rules (common 5-card draft, picking order by standings, tiers), ranked: everyone needs an account and the result updates their **S.K.U.L.O.** (see "Results & S.K.U.L.O.").
+- Setup of Firebase: `docs/firebase-setup.md`.
