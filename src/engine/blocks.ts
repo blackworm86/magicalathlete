@@ -1,0 +1,43 @@
+import type { CharacterId } from './characters';
+
+// Colour of the wooden block of each racer miniature (read from the photo; a few edge-case pieces may
+// need a manual check). Matters for future expansions that may reuse the same art on other blocks.
+export type Block = 'orange' | 'purple' | 'cyan' | 'green' | 'yellow';
+export const BLOCK: Record<CharacterId, Block> = {
+  alchemist: 'yellow',
+  baba_yaga: 'cyan',
+  banana: 'purple',
+  blimp: 'cyan',
+  centaur: 'purple',
+  cheerleader: 'cyan',
+  coach: 'purple',
+  copy_cat: 'orange',
+  dicemonger: 'yellow',
+  duelist: 'purple',
+  egg: 'green',
+  flip_flop: 'orange',
+  genius: 'yellow',
+  gunk: 'orange',
+  hare: 'orange',
+  heckler: 'green',
+  huge_baby: 'green',
+  hypnotist: 'yellow',
+  inchworm: 'orange',
+  lackey: 'orange',
+  leaptoad: 'orange',
+  legs: 'purple',
+  loveable_loser: 'orange',
+  magician: 'orange',
+  mastermind: 'purple',
+  mouth: 'green',
+  party_animal: 'orange',
+  rocket_scientist: 'purple',
+  romantic: 'purple',
+  scoocher: 'purple',
+  sisyphus: 'yellow',
+  skipper: 'purple',
+  stickler: 'cyan',
+  suckerfish: 'cyan',
+  third_wheel: 'green',
+  twin: 'cyan',
+};

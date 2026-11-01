@@ -20,10 +20,12 @@
   },
   "homepage": "https://github.com/blackworm86/magicalathlete#readme",
   "dependencies": {
+    "d3-contour": "^4.0.2",
     "firebase": "^13.1.0",
     "three": "^0.187.0"
   },
   "devDependencies": {
+    "@types/d3-contour": "^3.0.6",
     "@types/three": "^0.187.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
