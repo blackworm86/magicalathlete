@@ -6,9 +6,11 @@ import type { CharacterId } from '../engine/characters';
 // A racer miniature is a flat, screen-printed wooden cut-out: we extrude its photo silhouette
 // (traced from the PNG's alpha) and print the photo on the faces; the edge is the block colour.
 export const BLOCK_HEX: Record<Block, number> = { orange: 0xe8741a, purple: 0x6e3aa8, cyan: 0x25a9cf, green: 0x2f9a45, yellow: 0xf0bb12 };
-const PX_PER_UNIT = 230; // photo pixels per world unit (a tile is 1 unit)
-const THICKNESS = 0.2;
-const MAX_WIDTH = 1.05;
+// Real proportions. A board space is 1 unit. Huge Baby (375 px wide in the photo) is as wide and as thick as
+// a whole space, so 375 px = 1 unit; a standard 300 px tall piece is then 0.8 units = 5 cm, and 2 cm thick = 0.32 units.
+const PX_PER_UNIT = 375;
+const THICKNESS = 0.32;
+const MAX_WIDTH = 1.0;
 const GRID_H = 110;
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -66,15 +68,16 @@ function load(id: CharacterId, base: string) {
 export async function buildRacer(id: CharacterId, base = import.meta.env.BASE_URL): Promise<THREE.Mesh> {
   const { img, tex, poly } = await load(id, base);
   const shape = new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(x, y)));
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: THICKNESS, bevelEnabled: false, curveSegments: 1 });
   let w = img.width / PX_PER_UNIT, h = img.height / PX_PER_UNIT;
   if (w > MAX_WIDTH) { h *= MAX_WIDTH / w; w = MAX_WIDTH; }
-  geo.translate(-0.5, 0, -THICKNESS / 2); // centre horizontally, centre thickness on z
+  const depth = id === 'huge_baby' ? w : THICKNESS; // Huge Baby is as thick as it is wide: a whole space
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 1 });
+  geo.translate(-0.5, 0, -depth / 2); // centre horizontally, centre thickness on z
   geo.scale(w, h, 1);
   const face = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0 });
   const side = new THREE.MeshStandardMaterial({ color: BLOCK_HEX[BLOCK[id]], roughness: 0.6, metalness: 0 });
   const m = new THREE.Mesh(geo, [face, side]);
   m.castShadow = true;
-  m.userData = { width: w, height: h };
+  m.userData = { width: w, height: h, depth };
   return m;
 }

@@ -9,7 +9,8 @@ const TILE: Record<Color, number> = { p: 0xe96fc0, y: 0xf5b82e, g: 0x3f9f3f, b: 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** World position (x,z) of a tile; tile 30 is the finish podium. */
-export function tilePos(i: number) { const c = tileCenter(i); return new THREE.Vector3(c.x - 7.5, 0.1, c.y - 2); }
+const TOP = 0.08; // top surface of a tile
+export function tilePos(i: number) { const c = tileCenter(i); return new THREE.Vector3(c.x - 7.5, TOP, c.y - 2); }
 
 function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -49,7 +50,7 @@ function specialTex(track: Track, i: number) {
 
 export interface RacerView {
   id: number; owner: string; character: CharacterId;
-  group: THREE.Group; mesh: THREE.Mesh | null; disc: THREE.Mesh; ring: THREE.Mesh;
+  group: THREE.Group; mesh: THREE.Mesh | null; pip: THREE.Mesh;
   pos: number; // tile currently shown
   place: number; // 0 = racing, 1/2 = finished on podium, -1 = eliminated
 }
@@ -149,16 +150,16 @@ export class BoardScene {
 
   async addRacer(id: number, owner: string, character: CharacterId, color: number, pos: number) {
     const group = new THREE.Group();
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.05, 28), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
-    disc.position.y = 0.03; disc.receiveShadow = true;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.04, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    ring.rotation.x = Math.PI / 2; ring.position.y = 0.06; ring.visible = false;
-    group.add(disc, ring);
-    const rv: RacerView = { id, owner, character, group, mesh: null, disc, ring, pos, place: 0 };
+    // No base under the miniature (the real ones have none): a small floating gem in the owner's colour shows whose it is.
+    const pip = new THREE.Mesh(new THREE.OctahedronGeometry(0.1), new THREE.MeshStandardMaterial({ color, roughness: 0.35, emissive: color, emissiveIntensity: 0.25 }));
+    pip.position.y = 1.1;
+    group.add(pip);
+    const rv: RacerView = { id, owner, character, group, mesh: null, pip, pos, place: 0 };
     this.racers.set(id, rv);
     this.scene.add(group);
     buildRacer(character).then((mesh) => {
-      const s = 1.0; mesh.scale.multiplyScalar(s); mesh.position.y = 0.06; group.add(mesh); rv.mesh = mesh;
+      group.add(mesh); rv.mesh = mesh;
+      pip.position.y = mesh.userData.height + 0.16;
     });
     this.layout();
   }
@@ -168,7 +169,14 @@ export class BoardScene {
     const out = new Map<number, THREE.Vector3>();
     const byTile = new Map<number, RacerView[]>();
     for (const r of this.racers.values()) { if (r.place < 0) continue; const k = r.place ? 100 + r.place : r.pos; (byTile.get(k) ?? byTile.set(k, []).get(k)!).push(r); }
-    for (const list of byTile.values()) list.forEach((r, i) => out.set(r.id, new THREE.Vector3((i - (list.length - 1) / 2) * Math.min(0.36, 0.9 / list.length), 0, (i % 2) * 0.1)));
+    // Pieces are thin (2 cm): spread them side by side, and in two rows when 4 or more share a space.
+    for (const list of byTile.values()) {
+      const n = list.length, rows = n >= 4 ? 2 : 1, perRow = Math.ceil(n / rows);
+      list.forEach((r, i) => {
+        const row = Math.floor(i / perRow), col = i % perRow, inRow = row === rows - 1 ? n - perRow * (rows - 1) : perRow;
+        out.set(r.id, new THREE.Vector3((col - (inRow - 1) / 2) * Math.min(0.42, 0.84 / inRow), 0, rows === 1 ? 0 : (row - 0.5) * 0.4));
+      });
+    }
     return out;
   }
   private basePos(r: RacerView) {
@@ -180,10 +188,10 @@ export class BoardScene {
     for (const r of this.racers.values()) {
       if (r.place < 0) continue;
       r.group.position.copy(this.basePos(r)).add(off.get(r.id) ?? new THREE.Vector3());
-      r.group.position.y = r.place ? 0.1 : 0.1;
+      r.group.position.y = TOP;
     }
   }
-  setActive(id: number | null) { for (const r of this.racers.values()) r.ring.visible = r.id === id; }
+  setActive(id: number | null) { for (const r of this.racers.values()) r.pip.scale.setScalar(r.id === id ? 2 : 1); }
 
   // ---- animations ------------------------------------------------------------------------
   async hop(r: RacerView, from: number, to: number, slide = false) {
@@ -196,7 +204,7 @@ export class BoardScene {
       const target = tilePos(s);
       const a = cur.clone();
       await this.tween(per, (t) => {
-        r.group.position.set(a.x + (target.x - a.x) * t, 0.1 + (slide ? 0 : Math.sin(t * Math.PI) * 0.45), a.z + (target.z - a.z) * t);
+        r.group.position.set(a.x + (target.x - a.x) * t, TOP + (slide ? 0 : Math.sin(t * Math.PI) * 0.45), a.z + (target.z - a.z) * t);
       });
       cur = target; r.pos = s;
     }
@@ -214,7 +222,7 @@ export class BoardScene {
     r.place = place;
     const off = this.slotOffsets().get(r.id) ?? new THREE.Vector3();
     const to = this.basePos(r).add(off);
-    await this.tween(0.6, (t) => r.group.position.set(from.x + (to.x - from.x) * t, 0.1 + Math.sin(t * Math.PI) * 0.8, from.z + (to.z - from.z) * t));
+    await this.tween(0.6, (t) => r.group.position.set(from.x + (to.x - from.x) * t, TOP + Math.sin(t * Math.PI) * 0.8, from.z + (to.z - from.z) * t));
     this.layout();
   }
 
@@ -222,6 +230,6 @@ export class BoardScene {
     const a = r.group.rotation.x, b = down ? -Math.PI / 2 + 0.05 : 0;
     await this.tween(0.3, (t) => { r.group.rotation.x = a + (b - a) * t; });
   }
-  async bounce(r: RacerView) { await this.tween(0.35, (t) => { r.group.position.y = 0.1 + Math.sin(t * Math.PI) * 0.5; }); }
+  async bounce(r: RacerView) { await this.tween(0.35, (t) => { r.group.position.y = TOP + Math.sin(t * Math.PI) * 0.5; }); }
   async eliminate(r: RacerView) { r.place = -1; await this.tween(0.5, (t) => { r.group.scale.setScalar(1 - t); r.group.rotation.y = t * 6; }); r.group.visible = false; }
 }
