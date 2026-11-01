@@ -66,7 +66,7 @@ test('Egg draws 3 new racers; Twin only offers past race winners', async () => {
       players: ['A', 'B', 'C'], rng: r,
       agent: {
         draft: (_p, o) => Math.max(0, o.findIndex((c) => c === 'egg' || c === 'twin')),
-        pick: (_p, hand) => [Math.max(0, hand.findIndex((c) => c === 'egg' || c === 'twin'))],
+        pick: (_p, hand, _n, race) => [Math.max(0, hand.findIndex((c) => c === (race === 0 ? 'egg' : 'twin')))],
         egg: (_p, o) => { eggOptions = o.length; return 0; },
         twin: (_p, o) => { twinOptions = o.length; return 0; },
       },
