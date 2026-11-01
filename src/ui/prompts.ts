@@ -22,7 +22,7 @@ export class Prompter {
   constructor(private root: HTMLElement) {}
 
   private sheet(title: string, sub: string | undefined, color: string | undefined, body: Node, footer?: Node): { close: () => void } {
-    const box = h('div', { class: 'sheet' }, h('h2', color ? { style: `border-color:${color}` } : {}, title));
+    const box = h('div', { class: 'sheet' }, h('h2', color ? { style: `background:${color}` } : {}, title));
     if (sub) box.append(h('p', { class: 'sub' }, sub));
     box.append(body);
     if (footer) box.append(footer);

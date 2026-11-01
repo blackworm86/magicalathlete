@@ -6,7 +6,8 @@ import { BoardScene, sleep } from '../render/boardScene';
 import { cardOf, h, Prompter } from '../ui/prompts';
 
 export interface PlayerCfg { id: string; name: string; human: boolean; color: string }
-export const PLAYER_COLORS = ['#e8423a', '#2f8be6', '#2fb36a', '#f0b429', '#a05bd6', '#f0f0f0'];
+// Same player colours as the tournament site.
+export const PLAYER_COLORS = ['#ff7a59', '#7fb2ff', '#6fe0a3', '#ffe14d', '#ff9fd2', '#c4a7ff'];
 
 const nm = (id: CharacterId) => CHARACTER_BY_ID[id].name;
 
@@ -29,13 +30,13 @@ export async function runGame(root: HTMLElement, players: PlayerCfg[], seed = Da
   // ---- event player: consumes race.events one by one, animating them -----------------------
   let race: Race | null = null, cursor = 0, running = false, active: number | null = null;
   const color = (owner: string) => by[owner].color;
-  const toast = (text: string, c = '#fff') => { const t = h('div', { class: 'toast', style: `border-color:${c}` }, text); toasts.append(t); setTimeout(() => t.remove(), 3200 / board.speed); };
+  const toast = (text: string, c = '#fff') => { void c; const t = h('div', { class: 'toast' }, text); toasts.append(t); setTimeout(() => t.remove(), 3200 / board.speed); };
   const names = (id: number) => { const rv = board.racers.get(id)!; return `${by[rv.owner].name}'s ${nm(rv.character)}`; };
 
   function renderHud(totals: Record<string, number>, raceIdx: number, trackName: string) {
     hud.innerHTML = '';
     hud.append(h('div', { class: 'title' }, `Race ${raceIdx + 1}/4 · ${trackName}`));
-    for (const p of players) hud.append(h('div', { class: 'pl' + (active !== null && board.racers.get(active)?.owner === p.id ? ' on' : ''), style: `border-color:${p.color}` }, `${p.name}${p.human ? '' : ' 🤖'}: ${totals[p.id] ?? 0} pts`));
+    for (const p of players) hud.append(h('div', { class: 'pl' + (active !== null && board.racers.get(active)?.owner === p.id ? ' on' : ''), style: `border-left-color:${p.color}` }, `${p.name}${p.human ? '' : ' 🤖'}: ${totals[p.id] ?? 0} pts`));
     if (race) for (const rr of race.racers) {
       const rv = board.racers.get(rr.id);
       if (!rv) continue;

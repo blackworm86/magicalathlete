@@ -70,7 +70,7 @@ export class BoardScene {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     host.appendChild(this.renderer.domElement);
-    this.scene.background = new THREE.Color(0x14173f);
+    this.scene.background = new THREE.Color(0xcfd6ff);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 1.5));
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(-5, 12, 8); sun.castShadow = true;

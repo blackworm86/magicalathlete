@@ -1,25 +1,62 @@
-html,body{margin:0;height:100%;background:#14173f;font-family:system-ui,Segoe UI,Arial,sans-serif;color:#fff;overflow:hidden}
+/* Visual style shared with the tournament site (Magical Outlet): periwinkle paper, thick ink borders,
+   hard offset shadows, Lilita One headings, Nunito text, pill buttons. */
+:root{--bg:#cfd6ff;--ink:#14121f;--paper:#ffffff;--muted:#46435f;--soft:#eef0ff;--acc:#ff7a59;--yel:#ffe14d;--gold:#ffc83d;--silver:#d9dee9;--bronze:#e8a46b;--red:#c8261b;color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 Nunito,system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
 #app,#stage{position:fixed;inset:0}canvas{display:block}
-.modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,12,40,.55);z-index:10;padding:12px;box-sizing:border-box}
-.sheet,.start{background:#1e2260;border:3px solid #fff3;border-radius:18px;padding:18px 22px;max-width:min(1100px,96vw);max-height:92vh;overflow:auto;box-shadow:0 10px 40px #0008}
-h1{margin:0 0 4px;font-size:34px}h2{margin:0 0 6px;font-size:22px;border-left:8px solid #fff;padding-left:10px}
-.sub{opacity:.8;margin:2px 0 12px}
-.cards{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
-.card{width:150px;background:#2a2f7a;border:3px solid transparent;border-radius:12px;color:#fff;padding:8px;cursor:pointer;display:flex;flex-direction:column;gap:3px;text-align:center;font:inherit}
-.card:hover{border-color:#ffd23f}.card.sel{border-color:#7CFC7C;background:#2d5a3d}
-.card img{height:110px;object-fit:contain}.card b{font-size:15px}.card i{font-size:11px;color:#ffd23f}.card span{font-size:11px;opacity:.9;line-height:1.25}.card em{font-size:11px;color:#ff9}
-.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:10px}
-.opt,.go{border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer;background:#3a40a0;color:#fff;display:flex;align-items:center;gap:8px}
-.opt:hover{background:#4c53c8}.opt.on{background:#ffd23f;color:#000}.opt.no{background:#555}.opt img{height:40px}
-.go{background:#2fb36a;margin:12px auto 0;display:block}.go[disabled]{opacity:.4;cursor:default}
-.lines p{margin:3px 0}.plist{display:flex;flex-direction:column;gap:8px;margin:12px 0}.prow{display:flex;gap:8px}
-input{flex:1;padding:9px;border-radius:8px;border:3px solid #fff;background:#12154a;color:#fff;font:inherit}
-.hud{position:fixed;top:8px;left:8px;width:260px;max-height:90vh;overflow:auto;font-size:13px;display:flex;flex-direction:column;gap:4px;z-index:5;pointer-events:none}
-.hud .title{font-weight:800;font-size:15px;background:#000a;padding:6px 8px;border-radius:8px}
-.hud .pl{background:#000a;border-left:6px solid;padding:4px 8px;border-radius:6px}.hud .pl.on{background:#fff3}
-.hud .rc{background:#0007;border-left:5px solid;padding:3px 7px;border-radius:5px;font-size:12px}.hud .rc.fin{opacity:.6}.hud .rc.out{opacity:.4;text-decoration:line-through}
-.die{position:fixed;left:50%;top:18%;transform:translateX(-50%);width:110px;height:110px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:72px;font-weight:900;color:#000;box-shadow:0 8px 30px #000a;z-index:6;border:5px solid #000}
+.t,h1,h2,h3{font-family:"Lilita One",Nunito,system-ui,sans-serif;font-weight:400;letter-spacing:.01em;margin:0;text-wrap:balance}
+.mut,.sub{color:var(--muted);font-weight:700;font-size:14px}.sub{margin:2px 0 12px}
+.lbl{font-weight:900;font-size:12px;letter-spacing:.1em;text-transform:uppercase}
+
+/* panels */
+.modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,18,31,.38);z-index:10;padding:12px;overflow:auto}
+.modal.home{background:var(--bg)}
+.sheet,.start{background:var(--paper);border:3px solid var(--ink);border-radius:20px;box-shadow:5px 5px 0 var(--ink);padding:16px 18px;max-width:min(1100px,96vw);max-height:92vh;overflow:auto;color:var(--ink)}
+.start{width:min(520px,96vw);display:flex;flex-direction:column;gap:6px}
+h1{font-size:40px;line-height:1}
+.sheet h2{font-size:28px;line-height:1.05;border:0;padding:0;margin-bottom:4px}
+.sheet h2[style]{display:inline-block;border:3px solid var(--ink);border-radius:12px;padding:0 12px 3px;box-shadow:3px 3px 0 var(--ink);transform:rotate(-1deg)}
+.logo{display:inline-block;font-size:34px;background:var(--yel);border:3px solid var(--ink);border-radius:14px;padding:0 16px 4px;box-shadow:4px 4px 0 var(--ink);transform:rotate(-1.5deg);align-self:flex-start;margin-bottom:6px}
+
+/* buttons */
+.opt,.go{min-height:48px;padding:0 20px;border:3px solid var(--ink);border-radius:99px;background:var(--paper);color:var(--ink);font:800 16px/1 Nunito,system-ui,sans-serif;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:3px 3px 0 var(--ink)}
+.opt:hover{background:var(--soft)}.opt.on{background:var(--ink);color:#fff}.opt.no{background:var(--paper);opacity:.85}
+.opt img{height:40px}
+.go{background:var(--acc);margin:14px auto 0;display:flex;min-height:56px;font-size:19px}
+.go[disabled]{opacity:.4;cursor:default}
+.opt:active,.go:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:10px;align-items:center}
+
+/* racer cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:16px;padding:2px 6px 8px}
+.card{background:var(--paper);border:3px solid var(--ink);border-radius:20px;box-shadow:5px 5px 0 var(--ink);color:var(--ink);padding:10px 12px 12px;cursor:pointer;display:flex;flex-direction:column;gap:6px;text-align:left;font:inherit}
+.card:hover{background:var(--soft)}.card:active{transform:translate(2px,2px)}
+.card.sel{background:var(--yel)}
+.card img{height:120px;object-fit:contain;align-self:center;background:var(--soft);border:3px solid var(--ink);border-radius:14px;width:100%;padding:4px}
+.card b{font-family:"Lilita One",sans-serif;font-weight:400;font-size:22px;line-height:1.05}
+.card i{font-style:normal;font-weight:900;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.card span{font-weight:700;font-size:13.5px;line-height:1.35;background:var(--paper);border:3px solid var(--ink);border-radius:12px;padding:6px 8px}
+.card em{font-style:normal;font-weight:800;font-size:12px}
+
+/* forms */
+.plist{display:flex;flex-direction:column;gap:10px;margin:12px 0}.prow{display:flex;gap:8px;align-items:center}
+input,select{font:inherit;font-weight:700;color:var(--ink);background:var(--paper);border:3px solid var(--ink);border-radius:12px;padding:10px;min-width:0;width:100%}
+.prow input{flex:1}
+.dot{width:34px;height:34px;flex:0 0 34px;border-radius:99px;border:3px solid var(--ink);display:inline-flex;align-items:center;justify-content:center;font:900 15px/1 Nunito,sans-serif}
+.lines p{margin:4px 0;font-weight:800}
+
+/* HUD */
+.hud{position:fixed;top:10px;left:10px;width:262px;max-height:92vh;overflow:auto;font-size:13px;display:flex;flex-direction:column;gap:6px;z-index:5;pointer-events:none}
+.hud .title{font-family:"Lilita One",sans-serif;font-size:19px;background:var(--yel);border:3px solid var(--ink);border-radius:14px;padding:3px 12px 5px;box-shadow:3px 3px 0 var(--ink);transform:rotate(-1deg)}
+.hud .pl{background:var(--paper);border:3px solid var(--ink);border-left-width:12px;border-radius:12px;padding:3px 10px;font-weight:900;box-shadow:3px 3px 0 var(--ink)}
+.hud .pl.on{background:var(--acc)}
+.hud .rc{background:var(--paper);border:2.5px solid var(--ink);border-left-width:9px;border-radius:10px;padding:2px 8px;font-weight:800;font-size:12.5px}
+.hud .rc.fin{opacity:.6}.hud .rc.out{opacity:.4;text-decoration:line-through}
+.die{position:fixed;left:50%;top:16%;transform:translateX(-50%);width:104px;height:104px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-family:"Lilita One",sans-serif;font-size:62px;color:var(--ink);border:4px solid var(--ink);box-shadow:5px 5px 0 var(--ink);z-index:6}
 .hidden{display:none}
-.toasts{position:fixed;right:10px;top:10px;display:flex;flex-direction:column;gap:6px;z-index:5;align-items:flex-end;pointer-events:none}
-.toast{background:#000c;border:2px solid;border-radius:10px;padding:6px 12px;font-weight:600;font-size:14px}
-.speed{position:fixed;right:10px;bottom:10px;z-index:5;background:#000a;color:#fff;border:1px solid #fff5;border-radius:8px;padding:6px}
+.toasts{position:fixed;right:12px;top:12px;display:flex;flex-direction:column;gap:8px;z-index:5;align-items:flex-end;pointer-events:none}
+.toast{background:var(--yel);color:var(--ink);border:3px solid var(--ink);border-radius:14px;box-shadow:3px 3px 0 var(--ink);padding:4px 12px 5px;font-weight:900;font-size:14px;animation:pop .25s ease-out}
+.speed{position:fixed;right:12px;bottom:12px;z-index:5;width:auto;min-height:44px;border-radius:99px;box-shadow:3px 3px 0 var(--ink);font-weight:900;padding:0 14px}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+@media (max-width:700px){.hud{width:190px;font-size:12px}.sheet,.start{padding:12px}.cards{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
