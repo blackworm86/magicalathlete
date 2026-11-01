@@ -7,7 +7,7 @@ export type Rules = 'friendly' | 'tournament';
 // Same player colours as the tournament site.
 export const PLAYER_COLORS = ['#ff7a59', '#7fb2ff', '#6fe0a3', '#ffe14d', '#ff9fd2', '#c4a7ff'];
 
-export interface PlayerInfo { id: string; name: string; bot: boolean; color: string }
+export interface PlayerInfo { id: string; name: string; bot: boolean; color: string; team?: string }
 
 /** What the host streams to every screen (its own and the other players'). Language-neutral. */
 export type LogEntry =
@@ -31,5 +31,5 @@ export function normalize(e: LogEntry): LogEntry {
     default: return e;
   }
 }
-export interface RoomPlayer { uid: string; name: string; guest: boolean; bot?: boolean; joined: number }
+export interface RoomPlayer { uid: string; name: string; team?: string; guest: boolean; bot?: boolean; joined: number }
 export interface Request { to: string; spec: PromptSpec }

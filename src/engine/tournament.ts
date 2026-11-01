@@ -128,7 +128,7 @@ export async function playTournament(o: TournamentOptions): Promise<TournamentRe
     if (first) { change.up = first.character; tiers[first.character] = shiftTier(tiers[first.character], 1); }
     const last = lastRacer(result);
     if (last && last.character !== first?.character) { change.down = last.character; tiers[last.character] = shiftTier(tiers[last.character], -1); }
-    const summary: RaceSummary = { index: k, track: schedule[k].id, places: result.places.map((r) => ({ owner: r.owner, character: r.character })), points };
+    const summary: RaceSummary = { index: k, track: schedule[k].id, places: result.places.map((r) => ({ owner: r.owner, character: r.character })), points, picks: { ...picked } };
     races.push(summary);
     await o.onRaceEnd?.(summary, { ...totals }, change);
   }

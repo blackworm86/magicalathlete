@@ -1,24 +1,42 @@
-import { computeElo, playerStats, type HistMatch } from '../engine/elo';
+import type { FullMatch } from '../engine/stats';
 import { GameView } from '../game/view';
 import { runClient } from '../game/client';
-import { PLAYER_COLORS, runHost } from '../game/host';
+import { PLAYER_COLORS, canon, runHost } from '../game/host';
 import type { PlayerInfo, RoomMeta, RoomPlayer, Rules } from '../game/protocol';
 import { getLang, onLang, setLang, t, type Key } from '../i18n';
 import { getBackend, type AuthUser, type Backend } from '../net/backend';
-import { h } from './prompts';
+import { dashboard, type Profile } from './dashboard';
+import { h, type PromptAnswer, type PromptSpec } from './prompts';
+import type { LogEntry } from '../game/protocol';
 
 let backend: Backend | null = null;
 let user: AuthUser | null = null;
 let root: HTMLElement;
 let render: () => void = () => undefined;
 let cleanup: (() => void)[] = [];
+let profile: Profile = {}; // the logged-in player's saved name and team
+const myName = () => (profile.name || user?.name || 'Player').slice(0, 24);
+const myTeam = () => (profile.team || '').slice(0, 24);
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const newCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const MAX_PLAYERS = 6;
 
+/** The room this browser is in: a reload takes the player straight back to it. */
+function remember(code: string) {
+  try { localStorage.setItem('ma_room', code); history.replaceState(null, '', `#${code}`); } catch { /* private mode */ }
+}
+function forget() {
+  try { localStorage.removeItem('ma_room'); history.replaceState(null, '', location.pathname + location.search); } catch { /* private mode */ }
+}
+const stillThere = (a: { alive?: number } | null | undefined, ms = 90_000) => !!a?.alive && Date.now() - a.alive < ms;
+
+let inGame = false; // while a game is on screen, menu refreshes (language, login changes) must leave it alone
+let draft: Profile | null = null, savedAt = 0; // dashboard: typed but not yet saved text survives a redraw
+
 function go(screen: () => void) {
   cleanup.forEach((f) => f()); cleanup = [];
+  inGame = false;
   render = screen;
   screen();
 }
@@ -146,6 +164,7 @@ function localSetup() {
   const playGame = async (run: () => Promise<void>, exit: () => void) => {
     cleanup.forEach((f) => f()); cleanup = [];
     view = new GameView(root);
+    inGame = true;
     view.onExit = exit;
     await run();
     if (view) { view.destroy(); view = null; }
@@ -175,7 +194,8 @@ function onlineMenu() {
     for (let i = 0; i < 8; i++) { const c = newCode(); if (!(await backend.get(`rooms/${c}/meta`))) { code = c; break; } }
     const me = user!;
     await backend.set(`rooms/${code}/meta`, { host: me.uid, rules, status: 'lobby', created: Date.now() } satisfies RoomMeta);
-    await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: me.name.slice(0, 24), guest: me.guest, joined: Date.now() } satisfies RoomPlayer);
+    await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: myName(), team: myTeam(), guest: me.guest, joined: Date.now() } satisfies RoomPlayer);
+    await backend.set(`userRooms/${me.uid}/${code}`, { created: Date.now(), rules });
     go(() => lobby(code));
   };
   const code = h('input', { class: 'codein', maxlength: '4', placeholder: 'ABCD', autocapitalize: 'characters' });
@@ -187,7 +207,43 @@ function onlineMenu() {
     h('div', { class: 'menu-grid two' },
       h('div', { class: 'panel' }, h('h2', {}, t('createRoom')), h('label', {}, t('rules')), sel, info, create),
       h('div', { class: 'panel' }, h('h2', {}, t('joinRoom')), h('label', {}, t('roomCode')), code, joinBtn)),
+    user && backend ? roomLists(user.uid) : h('span'),
     err);
+}
+
+/** "Your games" (to rejoin after a refresh or a lost connection) and the open rooms anyone can join. */
+function roomLists(uid: string) {
+  const b = backend!;
+  const mine = h('div', { class: 'rlist' }, h('p', { class: 'sub' }, t('loading')));
+  const open = h('div', { class: 'rlist' }, h('p', { class: 'sub' }, t('noOpenRooms')));
+  let token = 0;
+  const badge = (r: Rules) => h('span', { class: 'chip ' + (r === 'tournament' ? 'acc' : 'yel') }, t(r === 'tournament' ? 'tournamentBadge' : 'friendlyBadge'));
+  const row = (code: string, meta: { rules: Rules }, text: string, label: Key) => {
+    const btn = h('button', { class: 'opt sm' }, t(label));
+    btn.onclick = async () => { const m = await joinRoom(code); if (m) alert(m); };
+    return h('div', { class: 'ritem' }, h('span', { class: 'code small' }, code), h('div', { class: 'rtxt' }, badge(meta.rules), h('span', {}, text)), btn);
+  };
+  let myCodes: string[] = [];
+  cleanup.push(b.watch<Record<string, { rules: Rules }>>(`userRooms/${uid}`, async (v) => {
+    const my = ++token;
+    myCodes = Object.keys(v ?? {});
+    const rows: Node[] = [];
+    for (const code of myCodes) {
+      const meta = await b.get<RoomMeta>(`rooms/${code}/meta`);
+      if (!meta || meta.status === 'done') { void b.remove(`userRooms/${uid}/${code}`); continue; }
+      rows.push(row(code, meta, t(meta.status === 'playing' ? 'statusPlaying' : 'statusLobby'), 'rejoin'));
+    }
+    if (my !== token) return;
+    mine.innerHTML = '';
+    mine.append(...(rows.length ? rows : [h('p', { class: 'sub' }, t('noGames'))]));
+  }));
+  cleanup.push(b.watch<Record<string, { host: string; hostName: string; rules: Rules; count: number; alive: number }>>('openRooms', (v) => {
+    const rows = Object.entries(v ?? {}).filter(([code, r]) => stillThere(r) && !myCodes.includes(code))
+      .map(([code, r]) => row(code, r, `${t('hostedBy', { name: r.hostName })} · ${t('playersCount', { n: r.count })}`, 'join'));
+    open.innerHTML = '';
+    open.append(...(rows.length ? rows : [h('p', { class: 'sub' }, t('noOpenRooms'))]));
+  }));
+  return h('div', { class: 'menu-grid two' }, h('div', { class: 'panel' }, h('h2', {}, t('yourGames')), mine), h('div', { class: 'panel' }, h('h2', {}, t('openRooms')), open));
 }
 
 async function joinRoom(code: string): Promise<string | null> {
@@ -198,13 +254,49 @@ async function joinRoom(code: string): Promise<string | null> {
   const me = user!;
   const players = (await backend.get<Record<string, RoomPlayer>>(`rooms/${code}/players`)) ?? {};
   if (meta.status !== 'lobby') {
-    if (meta.order?.includes(me.uid)) { go(() => lobby(code)); return null; } // rejoin a running game
+    if (meta.status === 'playing' && meta.host === me.uid) { void resumeHost(code); return null; } // the host's page was closed or reloaded: rebuild the game
+    if (meta.status === 'playing' && meta.order?.includes(me.uid)) { go(() => lobby(code)); return null; } // rejoin a running game
     return t('roomStarted');
   }
   if (!players[me.uid] && Object.keys(players).length >= MAX_PLAYERS) return t('roomFull');
-  await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: me.name.slice(0, 24), guest: me.guest, joined: players[me.uid]?.joined ?? Date.now() } satisfies RoomPlayer);
+  await backend.set(`rooms/${code}/players/${me.uid}`, { uid: me.uid, name: myName(), team: myTeam(), guest: me.guest, joined: players[me.uid]?.joined ?? Date.now() } satisfies RoomPlayer);
+  await backend.set(`userRooms/${me.uid}/${code}`, { created: Date.now(), rules: meta.rules });
   go(() => lobby(code));
   return null;
+}
+
+/** The host's page was reloaded (or the browser crashed) during a game: the game is deterministic, so the stored seed
+ *  and every answer given so far rebuild exactly the same state; the other players never notice. */
+async function resumeHost(code: string) {
+  const b = backend!, me = user!;
+  page(topbar(), h('p', { class: 'lead' }, t('resuming')));
+  remember(code);
+  const [setup, logObj, decObj, reqObj, ansObj] = await Promise.all([
+    b.get<{ rules: Rules; ranked: boolean; seed: number; players: PlayerInfo[] }>(`rooms/${code}/setup`),
+    b.get<Record<string, LogEntry>>(`rooms/${code}/log`),
+    b.get<Record<string, { v: PromptAnswer }>>(`rooms/${code}/decisions`),
+    b.get<Record<string, Record<string, { spec: PromptSpec }>>>(`rooms/${code}/req`),
+    b.get<Record<string, Record<string, unknown>>>(`rooms/${code}/ans`),
+  ]);
+  if (!setup) { go(() => lobby(code)); return; }
+  cleanup.forEach((f) => f()); cleanup = [];
+  const view = new GameView(root);
+  inGame = true;
+  const abort = new AbortController();
+  cleanup.push(() => abort.abort(), b.onConnection((ok) => view.setOffline(!ok)));
+  const entries = Object.keys(logObj ?? {}).sort().map((k) => logObj![k]);
+  view.setCatchUp(true);
+  entries.forEach((e) => view.feed(e));
+  await view.drain();
+  view.setCatchUp(false);
+  const decisions = Object.keys(decObj ?? {}).sort().map((k) => decObj![k].v);
+  const pending: Record<string, string> = {};
+  for (const [to, reqs] of Object.entries(reqObj ?? {})) for (const [id, rq] of Object.entries(reqs)) if (!ansObj?.[to]?.[id]) pending[`${to}|${canon(rq.spec)}`] = id;
+  try {
+    await runHost({ rules: setup.rules, players: setup.players, local: new Set([me.uid]), net: { backend: b, code, host: me.uid }, seed: setup.seed, ranked: setup.ranked, signal: abort.signal, resume: { skipEntries: entries.length, decisions, pending } }, view);
+  } catch (e) { if ((e as Error).message === 'aborted') return; console.error(e); }
+  view.destroy(); forget();
+  go(home);
 }
 
 function lobby(code: string) {
@@ -214,36 +306,53 @@ function lobby(code: string) {
   let players: Record<string, RoomPlayer> = {};
   let view: GameView | null = null;
   let started = false;
-  const stopMeta = b.watch<RoomMeta>(`rooms/${code}/meta`, (m) => { meta = m; if (m?.status === 'playing' && !started && m.host !== me.uid) { startClient(); return; } draw(); });
-  const stopPl = b.watch<Record<string, RoomPlayer>>(`rooms/${code}/players`, (p) => { players = p ?? {}; draw(); });
-  cleanup.push(stopMeta, stopPl);
+  remember(code);
+  // an open room is listed for others to join, as long as the host's page keeps saying it is alive
+  const syncOpen = () => {
+    if (!meta || meta.host !== me.uid || meta.status !== 'lobby') return;
+    void b.set(`openRooms/${code}`, { host: me.uid, hostName: myName(), rules: meta.rules, count: Object.keys(players).length, created: meta.created, alive: Date.now() }).catch(() => undefined);
+  };
+  const unlist = () => { void b.remove(`openRooms/${code}`).catch(() => undefined); };
+  const stopMeta = b.watch<RoomMeta>(`rooms/${code}/meta`, (m) => { meta = m; syncOpen(); if (m?.status === 'playing' && !started && m.host !== me.uid) { startClient(); return; } if (m?.status === 'done') forget(); draw(); });
+  const stopPl = b.watch<Record<string, RoomPlayer>>(`rooms/${code}/players`, (p) => { players = p ?? {}; syncOpen(); draw(); });
+  const beat = setInterval(syncOpen, 10_000);
+  cleanup.push(stopMeta, stopPl, () => clearInterval(beat));
 
   const seats = (): string[] => {
     const ids = Object.keys(players).sort((a, c) => players[a].joined - players[c].joined);
     const order = (meta?.order ?? []).filter((i) => ids.includes(i));
     return [...order, ...ids.filter((i) => !order.includes(i))];
   };
-  const toInfo = (ids: string[]): PlayerInfo[] => ids.map((id, i) => ({ id, name: players[id].name, bot: !!players[id].bot, color: PLAYER_COLORS[i % PLAYER_COLORS.length] }));
+  const toInfo = (ids: string[]): PlayerInfo[] => ids.map((id, i) => ({ id, name: players[id].name, team: players[id].team, bot: !!players[id].bot, color: PLAYER_COLORS[i % PLAYER_COLORS.length] }));
 
   function startClient() {
     started = true;
     cleanup.forEach((f) => f()); cleanup = [];
     view = new GameView(root);
-    view.onExit = () => { stop(); view?.destroy(); view = null; go(home); };
-    const leaveNow = () => { stop(); view?.destroy(); view = null; go(home); };
+    inGame = true;
+    const leaveNow = () => { stop(); offStop(); view?.destroy(); view = null; forget(); go(home); };
+    view.onExit = leaveNow;
     const stop = runClient(b, code, me.uid, view, leaveNow);
+    const offStop = b.onConnection((ok) => view?.setOffline(!ok));
   }
 
   async function startHost() {
     const ids = seats();
     started = true;
+    unlist();
     await b.update(`rooms/${code}/meta`, { status: 'playing', order: ids });
     cleanup.forEach((f) => f()); cleanup = [];
     view = new GameView(root);
+    inGame = true;
     const v = view;
     v.onExit = () => undefined;
-    await runHost({ rules: meta!.rules, players: toInfo(ids), local: new Set([me.uid]), net: { backend: b, code, host: me.uid }, seed: Date.now(), ranked: meta!.rules === 'tournament' }, v);
+    const abort = new AbortController();
+    cleanup.push(() => abort.abort(), b.onConnection((ok) => v.setOffline(!ok)));
+    try {
+      await runHost({ rules: meta!.rules, players: toInfo(ids), local: new Set([me.uid]), net: { backend: b, code, host: me.uid }, seed: Date.now(), ranked: meta!.rules === 'tournament', signal: abort.signal }, v);
+    } catch (e) { if ((e as Error).message === 'aborted') return; console.error(e); }
     v.destroy(); view = null;
+    forget();
     go(home);
   }
 
@@ -256,7 +365,7 @@ function lobby(code: string) {
     const rows = ids.map((id, i) => {
       const p = players[id];
       const row = h('div', { class: 'prow' }, h('span', { class: 'dot', style: `background:${PLAYER_COLORS[i % PLAYER_COLORS.length]}` }, String(i + 1)),
-        h('b', { class: 'grow' }, `${p.name}${p.bot ? ' 🤖' : ''}`), id === meta!.host ? h('span', { class: 'chip' }, t('hostBadge')) : h('span'), id === me.uid ? h('span', { class: 'chip yel' }, t('you')) : h('span'));
+        h('b', { class: 'grow' }, `${p.name}${p.bot ? ' 🤖' : ''}`, p.team ? h('small', { class: 'teamtag' }, ` · ${p.team}`) : h('span')), id === meta!.host ? h('span', { class: 'chip' }, t('hostBadge')) : h('span'), id === me.uid ? h('span', { class: 'chip yel' }, t('you')) : h('span'));
       if (isHost) {
         const up = h('button', { class: 'opt sm' }, '↑'); up.onclick = () => { const o = [...ids]; [o[i - 1], o[i]] = [o[i], o[i - 1]]; void b.update(`rooms/${code}/meta`, { order: o }); };
         const dn = h('button', { class: 'opt sm' }, '↓'); dn.onclick = () => { const o = [...ids]; [o[i + 1], o[i]] = [o[i], o[i + 1]]; void b.update(`rooms/${code}/meta`, { order: o }); };
@@ -274,9 +383,9 @@ function lobby(code: string) {
     if (msg) start.setAttribute('disabled', '');
     start.onclick = () => void startHost();
     const leave = h('button', { class: 'opt' }, t('leaveRoom'));
-    leave.onclick = async () => { if (isHost) await b.update(`rooms/${code}/meta`, { status: 'done' }); else await b.remove(`rooms/${code}/players/${me.uid}`); go(home); };
+    leave.onclick = async () => { unlist(); if (isHost) await b.update(`rooms/${code}/meta`, { status: 'done' }); else { await b.remove(`rooms/${code}/players/${me.uid}`); await b.remove(`userRooms/${me.uid}/${code}`); } forget(); go(home); };
     const close = h('button', { class: 'opt' }, t('closeRoom'));
-    close.onclick = async () => { await b.update(`rooms/${code}/meta`, { status: 'done' }); go(home); };
+    close.onclick = async () => { unlist(); await b.update(`rooms/${code}/meta`, { status: 'done' }); forget(); go(home); };
     const copy = h('button', { class: 'opt sm' }, t('copyLink'));
     copy.onclick = () => { void navigator.clipboard?.writeText(link); copy.textContent = t('copied'); };
     const addBot = h('button', { class: 'opt' }, '+ ' + t('addBot'));
@@ -297,62 +406,49 @@ function lobby(code: string) {
 }
 
 function results() {
-  const draw = (hist: HistMatch[]) => {
-    const e = computeElo(hist);
-    const mine = user && !user.guest ? user.uid : null;
-    const board = Object.entries(e.ratings).map(([uid, r]) => ({ uid, ...r })).sort((a, c) => c.r - a.r);
-    const kids: Node[] = [topbar({ back: () => go(home) }), h('h1', { class: 't title' }, t('resultsTitle')), h('p', { class: 'sub' }, `${t('skulo')} · ${t('skuloFull')}`)];
-    if (!mine) {
-      const b = h('button', { class: 'go' }, t('login')); b.onclick = () => loginModal(undefined, true);
-      kids.push(h('div', { class: 'panel' }, h('p', {}, t('loginToSee')), b));
-    } else {
-      const st = playerStats(hist, mine);
-      const rating = e.ratings[mine]?.r ?? 1500;
-      const stat = (k: Key, v: string | number) => h('div', { class: 'stat' }, h('span', { class: 'lbl' }, t(k)), h('b', { class: 't' }, String(v)));
-      kids.push(h('div', { class: 'panel' }, h('div', { class: 'rating' }, h('span', { class: 'lbl' }, t('yourRating')), h('b', { class: 't big' }, String(rating)), h('span', { class: 'mut' }, t('skulo'))),
-        h('div', { class: 'stats' }, stat('matches', st.matches), stat('winsLabel', st.wins), stat('podiums', st.podiums), stat('winRate', st.winRate === null ? '—' : st.winRate + '%'), stat('avgPoints', st.avgPoints), stat('bestScore', st.best), stat('raceWins', st.raceWins))));
-      kids.push(h('div', { class: 'panel' }, h('h3', { class: 't' }, t('ratingChart')), chart(e, mine)));
-      const mineList = e.list.filter((m) => m.players.some((p) => p.uid === mine)).reverse();
-      const rows = mineList.map((m) => {
-        const p = m.players.find((x) => x.uid === mine)!, ch = e.per[m.id]?.[mine];
-        return h('tr', {}, h('td', {}, new Date(m.date).toLocaleDateString(getLang() === 'it' ? 'it-IT' : 'en-GB')), h('td', {}, `${p.pos}/${m.players.length}`), h('td', {}, String(p.p)), h('td', { class: ch && ch.d < 0 ? 'neg' : 'pos' }, ch ? `${ch.d > 0 ? '+' : ''}${ch.d} → ${ch.a}` : ''));
-      });
-      kids.push(h('div', { class: 'panel' }, h('h3', { class: 't' }, t('history')),
-        rows.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ...(['date', 'position', 'points', 'change'] as Key[]).map((k) => h('th', {}, t(k))))), h('tbody', {}, ...rows)) : h('p', { class: 'sub' }, t('noHistory'))));
-    }
-    const lb = board.map((r, i) => h('tr', { class: r.uid === mine ? 'me' : '' }, h('td', {}, String(i + 1)), h('td', {}, r.name), h('td', {}, String(r.r)), h('td', {}, String(r.n))));
-    kids.push(h('div', { class: 'panel' }, h('h3', { class: 't' }, t('ranking')),
-      lb.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, t('player')), h('th', {}, t('skulo')), h('th', {}, t('matches')))), h('tbody', {}, ...lb)) : h('p', { class: 'sub' }, t('noRanking'))));
-    page(...kids);
+  let hist: FullMatch[] = [], names: Record<string, string> = {};
+  const draw = () => {
+    const uid = user && !user.guest ? user.uid : null;
+    page(topbar({ back: () => go(home) }), ...dashboard({
+      uid, hist, names, profile: draft ?? profile, defaultName: user?.name ?? '', onDraft: (p) => { draft = p; }, savedRecently: Date.now() - savedAt < 3000,
+      onLogin: () => loginModal(undefined, true),
+      async onSave(p) {
+        if (!backend || !user) return;
+        savedAt = Date.now(); draft = null;
+        await backend.set(`users/${user.uid}`, { name: p.name, team: p.team });
+        if (p.name !== user.name) await backend.updateName(p.name);
+        profile = { name: p.name, team: p.team };
+        savedAt = Date.now();
+        draw();
+        setTimeout(draw, 3100);
+      },
+    }));
   };
   page(topbar({ back: () => go(home) }), h('p', { class: 'lead' }, t('loading')));
-  if (!backend) { draw([]); return; }
-  cleanup.push(backend.watch<Record<string, HistMatch>>('history', (v) => draw(Object.values(v ?? {}))));
-}
-
-function chart(e: ReturnType<typeof computeElo>, uid: string): Node {
-  const ser = e.series[uid] ?? [];
-  const W = 640, H = 220, m = { l: 44, r: 16, t: 14, b: 26 };
-  const vals = [1500, ...ser.map((s) => s.r)];
-  let lo = Math.min(...vals) - 20, hi = Math.max(...vals) + 20;
-  lo = Math.floor(lo / 25) * 25; hi = Math.ceil(hi / 25) * 25; if (hi === lo) hi = lo + 25;
-  const X = (i: number) => m.l + ((i + 1) / Math.max(1, ser.length)) * (W - m.l - m.r), Y = (v: number) => m.t + ((hi - v) / (hi - lo)) * (H - m.t - m.b);
-  const pts = [[m.l, Y(1500)], ...ser.map((s, i) => [X(i), Y(s.r)])];
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('class', 'elochart');
-  const grid = [lo, 1500, hi].filter((v, i, a) => a.indexOf(v) === i && v >= lo && v <= hi).map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${v === 1500 ? '#8f8ca8' : '#e3e3ee'}" ${v === 1500 ? 'stroke-dasharray="4 4"' : ''}/><text x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end" class="ax">${v}</text>`).join('');
-  svg.innerHTML = `${grid}<polyline fill="none" stroke="#ff7a59" stroke-width="3" stroke-linejoin="round" points="${pts.map((p) => p.join(',')).join(' ')}"/>${ser.map((s, i) => `<circle cx="${X(i)}" cy="${Y(s.r)}" r="5" fill="#ff7a59" stroke="#14121f" stroke-width="2"><title>${s.r} (${s.d > 0 ? '+' : ''}${s.d})</title></circle>`).join('')}`;
-  return h('div', { class: 'chartwrap' }, svg);
+  if (!backend) { draw(); return; }
+  cleanup.push(backend.watch<Record<string, FullMatch>>('history', (v) => { hist = Object.values(v ?? {}); draw(); }));
+  cleanup.push(backend.watch<Record<string, Profile>>('users', (v) => { names = Object.fromEntries(Object.entries(v ?? {}).filter(([, p]) => p?.name).map(([k, p]) => [k, p.name!])); if (hist.length || user) draw(); }));
 }
 
 // ---------------------------------------------------------------------------------------------
 export async function startApp(el: HTMLElement) {
   root = el;
   try { backend = await getBackend(); } catch (e) { console.warn('online play unavailable:', e); backend = null; } // the local game still works
-  backend?.onUser((u) => { user = u; render(); });
-  onLang(() => render());
+  let stopProfile = () => undefined as void;
+  backend?.onUser((u) => {
+    user = u; stopProfile(); profile = {};
+    if (u && !u.guest) stopProfile = backend!.watch<Profile>(`users/${u.uid}`, (p) => { profile = p ?? {}; }) as never;
+    if (!inGame) go(render);
+  });
+  onLang(() => { if (!inGame) go(render); });
   go(home);
+  // A reload (or a closed tab, a crash) must not lose the game: go back to the room this browser was in.
   const hash = location.hash.replace('#', '').toUpperCase();
-  if (hash.length === 4 && backend) { const m = await joinRoom(hash); if (m) alert(m); }
+  let saved: string | null = null;
+  try { saved = localStorage.getItem('ma_room'); } catch { /* private mode */ }
+  const target = hash.length === 4 ? hash : saved;
+  if (target && backend && (user || hash.length === 4)) {
+    const m = await joinRoom(target);
+    if (m) { forget(); if (hash.length === 4) alert(m); }
+  }
 }

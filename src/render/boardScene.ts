@@ -224,7 +224,7 @@ export class BoardScene {
   async hop(r: RacerView, from: number, to: number, slide = false) {
     const steps: number[] = []; const dir = Math.sign(to - from);
     for (let i = from; i !== to; i += dir) steps.push(i + dir);
-    const per = slide ? 0.5 : Math.min(0.26, 1.6 / Math.max(1, steps.length));
+    const per = slide ? 0.7 : Math.min(0.42, 2.8 / Math.max(1, steps.length)); // slow enough to count the spaces
     r.pos = from; this.layout();
     let cur = r.group.position.clone();
     for (const s of steps) {
@@ -242,6 +242,40 @@ export class BoardScene {
     await this.tween(0.25, (t) => r.group.scale.setScalar(1 - t));
     r.pos = to; this.layout();
     await this.tween(0.25, (t) => r.group.scale.setScalar(t));
+  }
+
+  /** Glowing rings under racers (gold = the power's owner, orange = who it acts on) and arrows from the owner to its targets. */
+  async showPower(sourceId: number, targetIds: number[], seconds: number) {
+    const src = this.racers.get(sourceId);
+    if (!src) return;
+    const extras: THREE.Object3D[] = [];
+    const halo = (r: RacerView, color: number) => {
+      const w = Math.max(0.55, (r.mesh?.userData.width ?? 0.6) + 0.35);
+      const m = new THREE.Mesh(new THREE.RingGeometry(w * 0.5, w * 0.5 + 0.1, 40), new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide }));
+      m.rotation.x = -Math.PI / 2; m.position.y = 0.03;
+      r.group.add(m); extras.push(m);
+      return m;
+    };
+    const rings = [halo(src, 0xffe14d), ...targetIds.map((id) => this.racers.get(id)).filter((r): r is RacerView => !!r).map((r) => halo(r, 0xff5a36))];
+    const top = (r: RacerView) => r.group.position.clone().add(new THREE.Vector3(0, (r.mesh?.userData.height ?? 0.8) + 0.25, 0));
+    const tubes: THREE.Mesh[] = [];
+    for (const id of targetIds) {
+      const tg = this.racers.get(id);
+      if (!tg) continue;
+      const a = top(src), b = top(tg), mid = a.clone().lerp(b, 0.5).add(new THREE.Vector3(0, 0.9 + a.distanceTo(b) * 0.12, 0));
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 28, 0.04, 6, false), new THREE.MeshBasicMaterial({ color: 0xff5a36 }));
+      const dir = b.clone().sub(mid).normalize();
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.3, 12), new THREE.MeshBasicMaterial({ color: 0xff5a36 }));
+      head.position.copy(b); head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      this.scene.add(tube, head); extras.push(tube, head); tubes.push(tube);
+    }
+    const total = tubes.map((t) => t.geometry.index!.count);
+    await this.tween(seconds, (t) => {
+      const pulse = 1 + Math.sin(t * Math.PI * 6) * 0.08;
+      rings.forEach((m) => m.scale.setScalar(pulse));
+      tubes.forEach((tb, i) => tb.geometry.setDrawRange(0, Math.floor((total[i] * Math.min(1, t * 3)) / 3) * 3));
+    });
+    for (const o of extras) { o.removeFromParent(); const m = o as THREE.Mesh; m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
   }
 
   async finishAt(r: RacerView, place: number) {

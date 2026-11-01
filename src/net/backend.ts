@@ -14,6 +14,10 @@ export interface Backend {
   signInGoogle(): Promise<void>;
   signInGuest(name: string): Promise<void>;
   signOut(): Promise<void>;
+  /** Calls cb(false) when the connection to the server is lost and cb(true) when it is back. */
+  onConnection(cb: (online: boolean) => void): Unsub;
+  /** Change the display name of the logged-in account. */
+  updateName(name: string): Promise<void>;
   get<T = unknown>(path: string): Promise<T | null>;
   set(path: string, value: unknown): Promise<void>;
   update(path: string, value: Record<string, unknown>): Promise<void>;
@@ -78,6 +82,8 @@ export async function createFirebaseBackend(): Promise<Backend> {
       refresh();
     },
     async signOut() { await A.signOut(auth); },
+    onConnection(cb) { return D.onValue(D.ref(db, '.info/connected'), (s) => cb(s.val() === true)); },
+    async updateName(name) { if (auth.currentUser) { await A.updateProfile(auth.currentUser, { displayName: name }); refresh(); } },
     async get<T>(path: string) { const s = await D.get(D.ref(db, path)); return (s.exists() ? s.val() : null) as T | null; },
     async set(path, value) { await D.set(D.ref(db, path), value); },
     async update(path, value) { await D.update(D.ref(db, path), value); },
@@ -154,6 +160,8 @@ export function createLocalBackend(): Backend {
     async signInGoogle() { const n = prompt('Google account name (test backend)', 'Google user'); if (n) setUser({ uid: 'goog_' + n.toLowerCase().replace(/\W/g, ''), name: n, guest: false, email: n + '@gmail.test' }); },
     async signInGuest(name) { setUser({ uid: 'g_' + Math.random().toString(36).slice(2, 10), name, guest: true }); },
     async signOut() { setUser(null); },
+    onConnection(cb) { cb(true); return () => undefined; },
+    async updateName(name) { if (current) setUser({ ...current, name }); },
     async get<T>(path: string) { return getAt(readTree(), path) as T | null; },
     async set(path, value) { write(path, value); },
     async update(path, value) { for (const [k, v] of Object.entries(value)) write(`${path}/${k}`, v); },

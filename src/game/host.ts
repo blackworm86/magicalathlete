@@ -13,6 +13,13 @@ import type { GameView } from './view';
 export type HostView = Pick<GameView, 'feed' | 'drain' | 'prompter' | 'showBanner' | 'destroyed'>;
 
 export { PLAYER_COLORS };
+/** What a host that reloaded the page needs to rebuild the running game: the game is deterministic, so the seed
+ *  plus every answer given so far gives back exactly the same state. */
+export interface HostResume {
+  skipEntries: number; // log entries that already exist (they are not sent again)
+  decisions: PromptAnswer[]; // every answer given by a human, in order
+  pending: Record<string, string>; // questions that were asked and not answered yet (canonical key -> request id)
+}
 export interface HostConfig {
   rules: Rules;
   players: PlayerInfo[]; // seat order
@@ -21,7 +28,13 @@ export interface HostConfig {
   seed: number;
   ranked: boolean;
   timeouts?: { answer: number; away: number }; // for tests
+  resume?: HostResume;
+  signal?: AbortSignal; // stops the game (the host left)
 }
+
+/** JSON with sorted keys: Firebase returns keys in its own order, so questions are compared in this form. */
+export const canon = (x: unknown): string => JSON.stringify(x, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1))) : v));
+export const decisionKey = (n: number) => `d${String(n).padStart(6, '0')}`;
 
 const clean = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 const ANSWER_TIMEOUT_MS = 180_000; // how long a player may think
@@ -43,32 +56,61 @@ export async function runHost(cfg: HostConfig, view: HostView): Promise<void> {
   /** Online writes must never fail silently: the other players would just see a frozen screen. */
   const send = (p: Promise<unknown>) => { p.catch(netError); };
   const away = new Set<string>(); // players who did not answer in time: the bot answers fast for them until they are back
+  const skip = cfg.resume?.skipEntries ?? 0;
+  let emitted = 0;
   const emit = (e: LogEntry) => {
+    if (++emitted <= skip) return; // this entry is already in the log and on every screen
     const c = clean(e);
     view.feed(c);
     if (net) send(net.backend.push(`rooms/${net.code}/log`, c));
   };
+  const stopped = () => { if (cfg.signal?.aborted) throw new Error('aborted'); };
   const flush = () => { while (race && cursor < race.events.length) emit({ t: 'ev', e: race.events[cursor++] }); };
 
   function waitAnswer(pid: string, reqId: string, ms: number): Promise<PromptAnswer | null> {
-    return new Promise((res) => {
+    return new Promise((res, rej) => {
       const stop = net!.backend.watch<{ v: PromptAnswer }>(`rooms/${net!.code}/ans/${pid}/${reqId}`, (a) => { if (a) { clearTimeout(timer); stop(); res(a.v); } });
       const timer = setTimeout(() => { stop(); res(null); }, ms);
+      cfg.signal?.addEventListener('abort', () => { clearTimeout(timer); stop(); rej(new Error('aborted')); });
     });
   }
 
+  /** Every human answer is stored: after a reload the game is rebuilt from the seed and these answers. */
+  async function persist(n: number, v: PromptAnswer) {
+    for (let i = 0; i < 3; i++) {
+      try { await net!.backend.set(`rooms/${net!.code}/decisions/${decisionKey(n)}`, clean({ v })); return; } catch { await new Promise((ok) => setTimeout(ok, 400 * (i + 1))); }
+    }
+    netError();
+  }
+  const replay = cfg.resume?.decisions ?? [];
+  let di = 0;
+  const pendingReqs = { ...(cfg.resume?.pending ?? {}) };
+
+  /** Ask a human (this device, or over the network). A player who does not answer is played by the bot. */
+  async function human(pid: string, spec: PromptSpec): Promise<PromptAnswer> {
+    if (cfg.local.has(pid)) { await view.drain(); return view.prompter.run(spec); }
+    if (!net) return randomAnswer(spec); // not drawn from the game's dice: the answer is stored, so it does not need to be repeatable
+    const key = `${pid}|${canon(clean(spec))}`;
+    let id = pendingReqs[key]; // a question asked before the host reloaded is still open on the player's screen
+    if (id) delete pendingReqs[key];
+    else { try { id = await net.backend.push(`rooms/${net.code}/req/${pid}`, clean({ to: pid, spec })); } catch { netError(); return randomAnswer(spec); } }
+    const a = await waitAnswer(pid, id, away.has(pid) ? awayMs : answerMs);
+    if (a === null) { away.add(pid); send(net.backend.remove(`rooms/${net.code}/req/${pid}/${id}`)); return randomAnswer(spec); }
+    away.delete(pid);
+    return a;
+  }
+
   async function ask(pid: string, spec: PromptSpec): Promise<PromptAnswer> {
+    stopped();
     flush();
     const p = by[pid];
     if (!p || p.bot) return randomAnswer(spec, r);
-    if (cfg.local.has(pid)) { await view.drain(); return view.prompter.run(spec); }
-    if (!net) return randomAnswer(spec, r);
-    let id: string;
-    try { id = await net.backend.push(`rooms/${net.code}/req/${pid}`, clean({ to: pid, spec })); } catch { netError(); return randomAnswer(spec, r); }
-    const a = await waitAnswer(pid, id, away.has(pid) ? awayMs : answerMs);
-    if (a === null) { away.add(pid); send(net.backend.remove(`rooms/${net.code}/req/${pid}/${id}`)); return randomAnswer(spec, r); } // a player who does not answer is played by the bot
-    away.delete(pid);
-    return a;
+    const n = di++;
+    if (n < replay.length) return replay[n]; // answered before the reload
+    const v = await human(pid, spec);
+    stopped();
+    if (net) await persist(n, v);
+    return v;
   }
   const idx = async (pid: string, spec: PromptSpec): Promise<number> => { const a = await ask(pid, spec); return Array.isArray(a) ? a[0] ?? 0 : typeof a === 'number' ? a : 0; };
   const pickN = async (pid: string, spec: PromptSpec): Promise<number[]> => { const a = await ask(pid, spec); return Array.isArray(a) ? a : [0]; };
@@ -103,13 +145,15 @@ export async function runHost(cfg: HostConfig, view: HostView): Promise<void> {
   const twinAsk = (pid: string, options: CharacterId[]) => (isBot(pid) ? rand(options.length) : idx(pid, { k: 'choose', title: { k: 'twinTitle', p: { name: by[pid].name } }, color: by[pid].color, options: options.map((c) => ({ label: c as string, id: c })), none: { k: 'noThanks' } }));
 
   // The host's browser runs the game: tell the others it is still there.
-  const beat: ReturnType<typeof setInterval> = setInterval(() => { if (view.destroyed) { clearInterval(beat); return; } if (net) send(net.backend.update(`rooms/${net.code}/meta`, { alive: Date.now() })); }, HEARTBEAT_MS);
+  const beat: ReturnType<typeof setInterval> = setInterval(() => { if (view.destroyed || cfg.signal?.aborted) { clearInterval(beat); return; } if (net) send(net.backend.update(`rooms/${net.code}/meta`, { alive: Date.now() })); }, HEARTBEAT_MS);
   if (net) send(net.backend.update(`rooms/${net.code}/meta`, { alive: Date.now() }));
+  if (net && !cfg.resume) await net.backend.set(`rooms/${net.code}/setup`, clean({ rules: cfg.rules, ranked: cfg.ranked, seed: cfg.seed, players: cfg.players }));
   emit({ t: 'start', rules: cfg.rules, players: cfg.players });
   let totals: Record<string, number> = {};
   let ranking: { id: string; pos: number; p: number }[] = [];
   let winners: string[] = [];
-  let hist: { id: string; name: string; p: number; pos: number; rw: number; bz: number }[] | null = null;
+  let hist: { id: string; name: string; team?: string; p: number; pos: number; rw: number; bz: number }[] | null = null;
+  let raceRecs: { track: string; picks: Record<string, string>; first?: string; firstChar?: string; second?: string; secondChar?: string }[] = [];
 
   if (cfg.rules === 'friendly') {
     const agent: MatchAgent = {
@@ -153,7 +197,8 @@ export async function runHost(cfg: HostConfig, view: HostView): Promise<void> {
     totals = res.totals; winners = res.winners;
     ranking = res.ranking.map((x) => ({ id: x.player, pos: x.pos, p: x.p }));
     const rw = Object.fromEntries(res.ranking.map((x) => [x.player, x.wins]));
-    hist = res.ranking.map((x) => ({ id: x.player, name: by[x.player].name, p: x.p, pos: x.pos, rw: rw[x.player], bz: x.bronze }));
+    hist = res.ranking.map((x) => ({ id: x.player, name: by[x.player].name, team: by[x.player].team, p: x.p, pos: x.pos, rw: rw[x.player], bz: x.bronze }));
+    raceRecs = res.races.map((s) => ({ track: s.track, picks: s.picks ?? {}, first: s.places[0]?.owner, firstChar: s.places[0]?.character, second: s.places[1]?.owner, secondChar: s.places[1]?.character }));
   }
 
   flush();
@@ -166,7 +211,7 @@ export async function runHost(cfg: HostConfig, view: HostView): Promise<void> {
   if (net && cfg.ranked && hist) {
     try {
       const id = `${net.code}_${Date.now().toString(36)}`;
-      await net.backend.set(`history/${id}`, clean({ id, date: Date.now(), rules: 'tournament', code: net.code, host: net.host, players: hist.map((x) => ({ uid: x.id, name: x.name, p: x.p, pos: x.pos, rw: x.rw, bz: x.bz })) }));
+      await net.backend.set(`history/${id}`, clean({ id, date: Date.now(), rules: 'tournament', code: net.code, host: net.host, races: raceRecs, players: hist.map((x) => ({ uid: x.id, name: x.name, team: x.team ?? '', p: x.p, pos: x.pos, rw: x.rw, bz: x.bz })) }));
       saved = true;
     } catch { saved = false; }
   }

@@ -45,17 +45,25 @@ export const POWERS: Partial<Record<string, PowerHooks>> = {
   },
   hare: {
     mainMoveBonus: (_r, self, mover) => (mover === self ? 2 : 0),
-    onTurnStart(race, self) { if (aloneIn(race.leaders(), self)) race.skipMain = true; },
+    onTurnStart(race, self) { if (aloneIn(race.leaders(), self)) return race.usePower(self, () => { race.skipMain = true; }); },
   },
   blimp: {
     mainMoveBonus: (race, self, mover) =>
       mover !== self ? 0 : race.turnStartPos < race.track.corners[1] ? 3 : -1,
   },
   legs: {
-    async rollOverride(race, self) { return (await ask(race, self)) ? 5 : undefined; },
+    async rollOverride(race, self) {
+      if (!(await ask(race, self))) return undefined;
+      await race.usePower(self, () => undefined);
+      return 5;
+    },
   },
   alchemist: {
-    async rollReplace(race, self, roll) { return roll <= 2 && (await ask(race, self)) ? 4 : undefined; },
+    async rollReplace(race, self, roll) {
+      if (roll > 2 || !(await ask(race, self))) return undefined;
+      await race.usePower(self, () => undefined);
+      return 4;
+    },
   },
   lackey: {
     onRolled: (race, self, mover, roll) => {
@@ -114,7 +122,7 @@ export const POWERS: Partial<Record<string, PowerHooks>> = {
     mainMoveBonus: (race, self, mover) => (mover === self ? race.at(self.pos, self).length : 0),
   },
   skipper: {
-    onRolled: (race, self, _mover, roll) => { if (roll === 1) race.forcedNext = self; },
+    onRolled: (race, self, _mover, roll) => { if (roll === 1) return race.usePower(self, () => { race.forcedNext = self; }); },
   },
   inchworm: {
     onRolled: (race, self, mover, roll) => {
@@ -138,7 +146,7 @@ export const POWERS: Partial<Record<string, PowerHooks>> = {
   rocket_scientist: {
     async rollReplace(race, self, roll) {
       if (!(await ask(race, self))) return undefined;
-      race.trip(self);
+      await race.usePower(self, () => race.trip(self));
       return roll * 2;
     },
   },

@@ -60,7 +60,7 @@ export interface MatchOptions {
   onRaceEnd?: (summary: RaceSummary, totals: Record<string, number>) => void | Promise<void>;
 }
 
-export interface RaceSummary { index: number; track: string; places: { owner: string; character: CharacterId }[]; points: Record<string, number>; }
+export interface RaceSummary { index: number; track: string; places: { owner: string; character: CharacterId }[]; points: Record<string, number>; picks?: Record<string, CharacterId> }
 export interface MatchResult { totals: Record<string, number>; races: RaceSummary[]; winners: string[]; }
 
 export function shuffle<T>(xs: readonly T[], rng: () => number): T[] {

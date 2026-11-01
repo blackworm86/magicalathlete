@@ -63,3 +63,35 @@ describe('Suckerfish and Sisyphus', () => {
     expect(r.racers[0].pos).toBe(0);
   });
 });
+
+describe('what a power did, for the screen', () => {
+  test('a power event lists the racers it acted on', async () => {
+    const r = mk([['C', 'centaur', 0], ['X', 'twin', 1], ['Y', 'twin', 2]], seq(6));
+    await r.takeTurn(r.racers[0]);
+    const p = r.events.find((e) => e.t === 'power' && e.power === 'centaur');
+    expect(p && p.t === 'power' ? p.targets?.sort() : null).toEqual([1, 2]);
+  });
+  test('Banana names the racer it tripped', async () => {
+    const r = mk([['X', 'twin', 0], ['B', 'banana', 3]], seq(5));
+    await r.takeTurn(r.racers[0]);
+    const p = r.events.find((e) => e.t === 'power' && e.power === 'banana');
+    expect(p && p.t === 'power' ? p.targets : null).toEqual([0]);
+  });
+  test('passive bonuses are reported: Gunk -1 and Coach +1', async () => {
+    const r = mk([['X', 'twin', 0], ['G', 'gunk', 10], ['C', 'coach', 0]], seq(4));
+    await r.takeTurn(r.racers[0]);
+    const mods = r.events.filter((e) => e.t === 'mod').map((e) => (e.t === 'mod' ? `${e.power}:${e.amount}` : ''));
+    expect(mods.sort()).toEqual(['coach:1', 'gunk:-1']);
+  });
+  test('Alchemist, Legs and Rocket Scientist are powers that happen: Scoocher moves', async () => {
+    const a = mk([['A', 'alchemist', 0], ['S', 'scoocher', 20]], seq(1));
+    await a.takeTurn(a.racers[0]);
+    expect(a.racers[1].pos).toBe(21);
+    const l = mk([['L', 'legs', 0], ['S', 'scoocher', 20]], seq(1));
+    await l.takeTurn(l.racers[0]);
+    expect(l.racers[1].pos).toBe(21);
+    const k = mk([['R', 'rocket_scientist', 0], ['S', 'scoocher', 20]], seq(2));
+    await k.takeTurn(k.racers[0]);
+    expect(k.racers[1].pos).toBe(21);
+  });
+});

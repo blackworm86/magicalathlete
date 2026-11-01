@@ -34,7 +34,8 @@ export type GameEvent =
   | { t: 'trip'; racer: number }
   | { t: 'recover'; racer: number }
   | { t: 'chip'; owner: string; amount: number }
-  | { t: 'power'; racer: number; power: CharacterId }
+  | { t: 'power'; racer: number; power: CharacterId; targets?: number[] } // targets: the other racers the power moved, tripped, warped...
+  | { t: 'mod'; racer: number; power: CharacterId; target: number; amount: number } // a passive bonus/penalty to a main move (Coach +1, Gunk -1...)
   | { t: 'finish'; racer: number; place: number }
   | { t: 'eliminated'; racer: number };
 
@@ -176,8 +177,17 @@ export class Race {
     this.chain.add(sig);
     this.depth++;
     try {
-      this.events.push({ t: 'power', racer: r.id, power: r.character });
+      const ev: Extract<GameEvent, { t: 'power' }> = { t: 'power', racer: r.id, power: r.character };
+      this.events.push(ev);
+      const from = this.events.length;
       await effect();
+      // who did this power act on? (the moves, trips, warps and eliminations of its own effect, before any reaction)
+      const hit = new Set<number>();
+      for (const e of this.events.slice(from)) {
+        if (e.t === 'power') break;
+        if ((e.t === 'move' && e.kind !== 'arrow') || e.t === 'warp' || e.t === 'trip' || e.t === 'eliminated') if (e.racer !== r.id) hit.add(e.racer);
+      }
+      if (hit.size) ev.targets = [...hit];
       await this.dispatch((h, s) => h.onPowerUsed?.(this, s, r));
     } finally {
       if (--this.depth === 0) this.chain.clear();
@@ -379,6 +389,7 @@ export class Race {
     for (const { self, h } of this.hookList()) {
       const b = h.mainMoveBonus?.(this, self, r) ?? 0;
       bonus += b;
+      if (b !== 0) this.events.push({ t: 'mod', racer: self.id, power: self.character, target: r.id, amount: b });
       for (let i = 0; i < -b; i++) negatives.push(self); // every -1 is a power happening (Scoocher reacts)
     }
     for (const n of negatives) await this.usePower(n, () => undefined);

@@ -4,7 +4,7 @@
 // start 1500, K 24, doubled during a player's first 3 tournaments. Computed in date order over the history.
 export const ELO = { start: 1500, k: 24, prov: 3 };
 
-export interface HistPlayer { uid: string; name: string; p: number; pos: number; rw?: number; bz?: number }
+export interface HistPlayer { uid: string; name: string; team?: string; p: number; pos: number; rw?: number; bz?: number }
 export interface HistMatch { id: string; date: number; players: HistPlayer[]; rules?: string }
 export interface EloChange { b: number; a: number; d: number }
 export interface EloResult {
