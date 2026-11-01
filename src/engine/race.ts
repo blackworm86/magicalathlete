@@ -50,6 +50,7 @@ export interface RaceResult {
   places: Racer[]; // [1st, 2nd] (the same racer twice if Mastermind wins both)
   bonus: Record<string, number>; // bronze chips earned (or lost) in the race, per player
   events: GameEvent[];
+  racers: Racer[]; // final state, in turn order
 }
 
 export class Race {
@@ -404,7 +405,7 @@ export class Race {
       if (!(e instanceof LoopError)) throw e; // rule 5: unresolvable loop ends the race
       this.over = true;
     }
-    return { places: this.places, bonus: this.bonus, events: this.events };
+    return { places: this.places, bonus: this.bonus, events: this.events, racers: this.racers };
   }
 }
 

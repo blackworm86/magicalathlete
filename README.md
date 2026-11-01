@@ -18,6 +18,7 @@ npm run dev
 
 - `src/engine/tracks.ts` both base tracks (Mild Mile, Wild Wilds), `characters.ts` all 36 racers with card text and rulings
 - `src/engine/race.ts` race engine (turns, main move, passing, stopping, arrows/stars/trips, finishing, trigger order, rule-5 loop handling), `match.ts` scoring
+- `src/engine/match.ts` the whole game: roll-off, snake draft (standard, 2-player and 3-player double-racer variants), secret picks, Egg and Twin, 4-race schedule, scoring, next-first-player rule
 - `src/engine/powers.ts` all 36 base-game powers (Egg and Twin borrow powers via `entry.extra`; the pick is made by the match flow, still to do)
 - `scripts/gen-track-svg.ts` regenerates `public/assets/maps/{mild,wild}.svg` from the track data
 - Chips: gold 3/4/4/5, silver 1/2/2/3 for races 1-4, bronze 1-point chips for stars and powers
