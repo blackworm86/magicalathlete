@@ -27,6 +27,7 @@ export type Decision =
 export type Agent = (d: Decision) => boolean | number | Promise<boolean | number>;
 
 export type GameEvent =
+  | { t: 'turn'; racer: number }
   | { t: 'roll'; racer: number; roll: number }
   | { t: 'move'; racer: number; from: number; to: number; kind: MoveKind }
   | { t: 'warp'; racer: number; from: number; to: number }
@@ -374,6 +375,7 @@ export class Race {
 
   async takeTurn(r: Racer) {
     this.current = r;
+    this.events.push({ t: 'turn', racer: r.id });
     this.turnStartPos = r.pos;
     this.skipMain = false;
     this.predictions.delete(r.id);

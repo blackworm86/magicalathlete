@@ -1,41 +1,43 @@
-import * as THREE from 'three';
-import { CHARACTERS } from './engine/characters';
-import { buildRacer } from './render/racerMesh';
+import './style.css';
+import { PLAYER_COLORS, runGame, type PlayerCfg } from './game/session';
+import { h } from './ui/prompts';
 
-// Gallery of all 36 miniatures (temporary: the real board scene comes next).
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
-document.body.appendChild(renderer.domElement);
+const app = document.getElementById('app')!;
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1d2160);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x445, 1.6));
-const sun = new THREE.DirectionalLight(0xffffff, 1.8);
-sun.position.set(-3, 8, 6);
-scene.add(sun);
-
-const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
-camera.position.set(0, 6.5, 17);
-camera.lookAt(0, 3.2, 0);
-
-const group = new THREE.Group();
-scene.add(group);
-const cols = 9;
-const ang = Number(new URLSearchParams(location.search).get('rot') ?? 0.5);
-Promise.all(CHARACTERS.map((c) => buildRacer(c.id))).then((meshes) => {
-  meshes.forEach((m, i) => {
-    m.position.set((i % cols - (cols - 1) / 2) * 1.9, (3 - Math.floor(i / cols)) * 2.1, 0);
-    m.rotation.y = ang;
-    group.add(m);
-  });
-  document.title = 'ready';
-});
-
-addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight);
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-});
-renderer.setAnimationLoop(() => renderer.render(scene, camera));
+function start() {
+  app.innerHTML = '';
+  let n = 4;
+  const human = [true, false, false, false, false, false];
+  const names = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6'];
+  const box = h('div', { class: 'start' }, h('h1', {}, 'Magical Athlete'), h('p', { class: 'sub' }, 'Local prototype · 2–6 players, humans and bots'));
+  const count = h('div', { class: 'row' });
+  const list = h('div', { class: 'plist' });
+  const render = () => {
+    count.innerHTML = '';
+    for (let k = 2; k <= 6; k++) {
+      const b = h('button', { class: 'opt' + (k === n ? ' on' : '') }, `${k} players`);
+      b.onclick = () => { n = k; render(); };
+      count.append(b);
+    }
+    list.innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      const name = h('input', { value: names[i], style: `border-color:${PLAYER_COLORS[i]}` });
+      name.oninput = () => { names[i] = name.value; };
+      const t = h('button', { class: 'opt' }, human[i] ? 'Human' : 'Bot 🤖');
+      t.onclick = () => { human[i] = !human[i]; render(); };
+      list.append(h('div', { class: 'prow' }, name, t));
+    }
+    if (n === 2) list.append(h('p', { class: 'sub' }, '2 players use the 2-player variant: 8 racers each, 2 racers per race.'));
+  };
+  render();
+  const go = h('button', { class: 'go' }, 'Start game');
+  go.onclick = async () => {
+    const players: PlayerCfg[] = Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: names[i] || `Player ${i + 1}`, human: human[i], color: PLAYER_COLORS[i] }));
+    app.innerHTML = '<div id="stage"></div>';
+    await runGame(app, players);
+    start();
+  };
+  box.append(count, list, go);
+  app.append(h('div', { class: 'modal' }, box));
+}
+start();

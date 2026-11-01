@@ -57,6 +57,7 @@ export interface MatchOptions {
   schedule?: Track[]; // default: Mild, Wild, Mild, Wild
   agent?: Partial<MatchAgent>;
   onRace?: (race: Race, index: number) => void; // lets the UI subscribe before a race starts
+  onRaceEnd?: (summary: RaceSummary, totals: Record<string, number>) => void | Promise<void>;
 }
 
 export interface RaceSummary { index: number; track: string; places: { owner: string; character: CharacterId }[]; points: Record<string, number>; }
@@ -162,6 +163,7 @@ export async function playMatch(o: MatchOptions): Promise<MatchResult> {
     for (const p of players) totals[p] = Math.max(0, totals[p] + (points[p] ?? 0)); // chips can't go below 0
     if (result.places[0]) winners.push(result.places[0].character);
     races.push({ index: i, track: schedule[i].id, places: result.places.map((r) => ({ owner: r.owner, character: r.character })), points });
+    await o.onRaceEnd?.(races[races.length - 1], { ...totals });
     first = nextFirst(players, result, points, variant, rng);
   }
   const best = Math.max(...Object.values(totals));

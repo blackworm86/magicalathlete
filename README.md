@@ -22,3 +22,12 @@ npm run dev
 - `src/engine/powers.ts` all 36 base-game powers (Egg and Twin borrow powers via `entry.extra`; the pick is made by the match flow, still to do)
 - `scripts/gen-track-svg.ts` regenerates `public/assets/maps/{mild,wild}.svg` from the track data
 - Chips: gold 3/4/4/5, silver 1/2/2/3 for races 1-4, bronze 1-point chips for stars and powers
+
+## Run the prototype
+
+```
+npm install
+npm run dev        # http://localhost:5173
+```
+
+Local hot-seat game for 2-6 players (humans and bots) with the 3D board, animated races and prompts for every power decision. Online play through Firebase is the next step.
